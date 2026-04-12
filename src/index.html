@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CityHop E-Scooter</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <section class="auth-screen" id="auth-screen">
+    <div class="auth-layout">
+      <div class="auth-copy">
+        <p class="eyebrow">Sprint 2 Frontend</p>
+        <h1>CityHop</h1>
+        <p class="auth-text">
+          A multi-page prototype for e-scooter rental, customer booking,
+          fleet visibility, and manager-side monitoring.
+        </p>
+        <div class="auth-badges">
+          <span>Customer booking</span>
+          <span>Booking history</span>
+          <span>Issue reporting</span>
+        </div>
+      </div>
+
+      <div class="auth-card">
+        <p class="card-label" id="auth-role-label">Customer Access</p>
+        <h2 id="auth-title">Create account</h2>
+        <p class="auth-subtitle" id="auth-subtitle">Register a new customer account to enter the platform.</p>
+
+        <form class="form" id="register-form">
+          <label>
+            Full name
+            <input type="text" id="register-name" placeholder="Alex Chen">
+          </label>
+          <label>
+            Email
+            <input type="email" id="register-email" placeholder="alex@example.com">
+          </label>
+          <label>
+            Password
+            <input type="password" id="register-password" placeholder="Choose password">
+          </label>
+          <button type="submit" class="button button--primary">Create account</button>
+        </form>
+
+        <form class="form hidden" id="login-form">
+          <label>
+            Email
+            <input type="email" id="login-email" placeholder="alex@example.com">
+          </label>
+          <label>
+            Password
+            <input type="password" id="login-password" placeholder="Enter password">
+          </label>
+          <button type="submit" class="button button--primary" id="login-button">Login</button>
+        </form>
+
+        <p class="feedback" id="auth-feedback">This is a local frontend prototype. Accounts are stored in demo memory.</p>
+
+        <div class="switch-row">
+          <div class="switch-group">
+            <button type="button" class="switch-pill is-active" data-auth-mode="register">Register</button>
+            <button type="button" class="switch-pill" data-auth-mode="login">Login</button>
+          </div>
+          <div class="switch-group">
+            <button type="button" class="switch-pill is-active" data-role="customer">Customer</button>
+            <button type="button" class="switch-pill" data-role="manager">Manager</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="app-shell hidden" id="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">CityHop Workspace</p>
+        <h1 id="app-title">Customer Portal</h1>
+      </div>
+      <div class="topbar__actions">
+        <div class="welcome-box">
+          <span id="welcome-text">Welcome</span>
+          <small id="welcome-role">Customer</small>
+        </div>
+        <button type="button" class="button button--ghost" id="logout-button">Log out</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <nav class="tabs" aria-label="Application pages">
+        <button class="tab is-active" data-page="products">Products</button>
+        <button class="tab" data-page="booking-history">Booking history</button>
+        <button class="tab" data-page="issues">Issues</button>
+        <button class="tab hidden" data-page="manager">Manager</button>
+      </nav>
+
+      <section class="page is-active" id="products-page">
+        <div class="hero-panel">
+          <div>
+            <p class="eyebrow">Products</p>
+            <h2>Available scooters</h2>
+            <p class="muted">
+              Browse the fleet, check availability, and choose a scooter to book.
+            </p>
+          </div>
+          <div class="summary-grid">
+            <div><strong id="summary-available">4</strong><span>Available</span></div>
+            <div><strong id="summary-active">1</strong><span>Active bookings</span></div>
+            <div><strong id="summary-revenue">GBP 12</strong><span>Revenue</span></div>
+            <div><strong id="summary-issues">1</strong><span>Open issues</span></div>
+          </div>
+        </div>
+        <div class="fleet" id="fleet-grid"></div>
+      </section>
+
+      <section class="page" id="book-page">
+        <article class="card">
+          <div class="card__header card__header--spread">
+            <div>
+              <p class="card__eyebrow">Booking</p>
+              <h2>Create a hire</h2>
+            </div>
+            <button type="button" class="button button--ghost" id="back-to-products-button">Back to products</button>
+          </div>
+          <form class="form" id="booking-form">
+            <label>
+              Customer name
+              <input type="text" id="customer-name" placeholder="Alex Chen">
+            </label>
+            <label>
+              Scooter
+              <select id="booking-scooter"></select>
+            </label>
+            <label>
+              Duration
+              <select id="booking-duration">
+                <option value="1">1 hour - GBP 4</option>
+                <option value="4">4 hours - GBP 12</option>
+                <option value="24">1 day - GBP 20</option>
+                <option value="168">1 week - GBP 60</option>
+              </select>
+            </label>
+            <button type="submit" class="button button--primary">Confirm booking</button>
+          </form>
+          <p class="feedback" id="booking-feedback"></p>
+          <div id="booking-summary" class="stack"></div>
+        </article>
+      </section>
+
+      <section class="page" id="booking-history-page">
+        <article class="card">
+          <div class="card__header">
+            <div>
+              <p class="card__eyebrow">History</p>
+              <h2>Booking history</h2>
+            </div>
+          </div>
+          <div id="customer-booking-history" class="list"></div>
+          <p class="feedback" id="booking-action-feedback"></p>
+        </article>
+      </section>
+
+      <section class="page" id="issues-page">
+        <div class="grid grid--two">
+          <article class="card">
+            <div class="card__header">
+              <div>
+                <p class="card__eyebrow">Support</p>
+                <h2>Report an issue</h2>
+              </div>
+            </div>
+            <form class="form" id="issue-form">
+              <label>
+                Scooter
+                <select id="issue-scooter"></select>
+              </label>
+              <label>
+                Description
+                <textarea id="issue-description" rows="4" placeholder="Describe the issue"></textarea>
+              </label>
+              <button type="submit" class="button button--ghost">Submit report</button>
+            </form>
+          </article>
+
+          <article class="card">
+            <div class="card__header">
+              <div>
+                <p class="card__eyebrow">Issue tracker</p>
+                <h2>Current reports</h2>
+              </div>
+            </div>
+            <div id="issue-list" class="list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="page" id="manager-page">
+        <div class="grid grid--two">
+          <article class="card">
+            <div class="card__header">
+              <div>
+                <p class="card__eyebrow">Dashboard</p>
+                <h2>Manager overview</h2>
+              </div>
+            </div>
+            <div class="summary-grid">
+              <div><strong id="manager-bookings">1</strong><span>Total bookings</span></div>
+              <div><strong id="manager-revenue">GBP 12</strong><span>Total revenue</span></div>
+              <div><strong id="manager-availability">80%</strong><span>Fleet availability</span></div>
+              <div><strong id="manager-issue-count">1</strong><span>Open issues</span></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card__header">
+              <div>
+                <p class="card__eyebrow">Pricing</p>
+                <h2>Current price settings</h2>
+              </div>
+            </div>
+            <div class="list">
+              <div><span>1 hour</span><strong>GBP 4</strong></div>
+              <div><span>4 hours</span><strong>GBP 12</strong></div>
+              <div><span>1 day</span><strong>GBP 20</strong></div>
+              <div><span>1 week</span><strong>GBP 60</strong></div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid grid--two">
+          <article class="card">
+            <div class="card__header">
+              <div>
+                <p class="card__eyebrow">Bookings</p>
+                <h2>All records</h2>
+              </div>
+            </div>
+            <div id="booking-history" class="list"></div>
+          </article>
+
+          <article class="card">
+            <div class="card__header">
+              <div>
+                <p class="card__eyebrow">Operations</p>
+                <h2>Reported problems</h2>
+              </div>
+            </div>
+            <div id="manager-issue-list" class="list"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <script src="main.js"></script>
+</body>
+</html>
