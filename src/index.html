@@ -56,16 +56,12 @@
           <button type="submit" class="button button--primary" id="login-button">Login</button>
         </form>
 
-        <p class="feedback" id="auth-feedback">This is a local frontend prototype. Accounts are stored in demo memory.</p>
+        <p class="feedback" id="auth-feedback">Accounts are now stored in SQLite, and customer login uses real password validation.</p>
 
         <div class="switch-row">
           <div class="switch-group">
             <button type="button" class="switch-pill is-active" data-auth-mode="register">Register</button>
             <button type="button" class="switch-pill" data-auth-mode="login">Login</button>
-          </div>
-          <div class="switch-group">
-            <button type="button" class="switch-pill is-active" data-role="customer">Customer</button>
-            <button type="button" class="switch-pill" data-role="manager">Manager</button>
           </div>
         </div>
       </div>
@@ -124,10 +120,6 @@
             <button type="button" class="button button--ghost" id="back-to-products-button">Back to products</button>
           </div>
           <form class="form" id="booking-form">
-            <label>
-              Customer name
-              <input type="text" id="customer-name" placeholder="Alex Chen">
-            </label>
             <label>
               Scooter
               <select id="booking-scooter"></select>
@@ -216,19 +208,43 @@
             <div class="card__header">
               <div>
                 <p class="card__eyebrow">Pricing</p>
-                <h2>Current price settings</h2>
+                <h2>Price configuration</h2>
               </div>
             </div>
-            <div class="list">
-              <div><span>1 hour</span><strong>GBP 4</strong></div>
-              <div><span>4 hours</span><strong>GBP 12</strong></div>
-              <div><span>1 day</span><strong>GBP 20</strong></div>
-              <div><span>1 week</span><strong>GBP 60</strong></div>
-            </div>
+            <form class="form" id="price-form">
+              <label>
+                1 hour price
+                <input type="number" min="1" id="price-1" placeholder="4">
+              </label>
+              <label>
+                4 hours price
+                <input type="number" min="1" id="price-4" placeholder="12">
+              </label>
+              <label>
+                1 day price
+                <input type="number" min="1" id="price-24" placeholder="20">
+              </label>
+              <label>
+                1 week price
+                <input type="number" min="1" id="price-168" placeholder="60">
+              </label>
+              <button type="submit" class="button button--primary">Save prices</button>
+            </form>
+            <p class="feedback" id="price-feedback"></p>
           </article>
         </div>
 
         <div class="grid grid--two">
+          <article class="card">
+            <div class="card__header">
+              <div>
+                <p class="card__eyebrow">Users</p>
+                <h2>Registered users</h2>
+              </div>
+            </div>
+            <div id="manager-user-list" class="list"></div>
+          </article>
+
           <article class="card">
             <div class="card__header">
               <div>

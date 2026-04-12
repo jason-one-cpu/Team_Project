@@ -56,6 +56,7 @@ This included:
 ```text
 Team_Project/
 |-- README.md
+|-- server.py
 |-- src/
 |   |-- index.html
 |   |-- styles.css
@@ -85,3 +86,17 @@ The system is expected to include:
 ## Status
 
 This repository now begins Sprint 2 front-end implementation with a customer view, fleet view, and manager dashboard prototype.
+
+## Run Locally
+
+Start the SQLite-backed backend and front end together with:
+
+```powershell
+python server.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000
+```
