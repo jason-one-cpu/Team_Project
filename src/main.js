@@ -322,11 +322,13 @@ registerForm.addEventListener("submit", (event) => {
 loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const email = document.getElementById("login-email").value.trim();
-  const user = dataService.findUserByEmail(email, uiState.role);
-  if (!user) {
-    authFeedback.textContent = `No ${uiState.role} account found for that email.`;
-    return;
-  }
+  const user =
+    dataService.findUserByEmail(email, uiState.role) || {
+      id: uiState.role === "manager" ? "M-DEMO" : "U-DEMO",
+      role: uiState.role,
+      name: uiState.role === "manager" ? "Demo Manager" : "Demo Customer",
+      email: email || (uiState.role === "manager" ? "manager@demo.local" : "customer@demo.local")
+    };
   loginForm.reset();
   enterApp(user);
 });
