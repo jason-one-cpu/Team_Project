@@ -56,17 +56,10 @@ This included:
 ```text
 Team_Project/
 |-- README.md
-|-- docs/
-|   |-- team-members.md
-|   |-- sprint1-plan-and-initial-design.md
-|   |-- sprint1-outcomes.md
-|   |-- meeting-minutes-and-attendance.md
-|   |-- meeting-2-sprint2-preparation.md
-|   |-- sprint2-plan-and-design.md
-|   |-- sprint2-task-allocation.md
-|   |-- sprint2-outcomes.md
-|   `-- sprint2-sprint3-sprint4-github-issues.md
 |-- src/
+|   |-- index.html
+|   |-- styles.css
+|   `-- main.js
 |-- tests/
 `-- .gitignore
 ```
@@ -91,4 +84,4 @@ The system is expected to include:
 
 ## Status
 
-This repository currently contains the project preparation materials and sprint planning documents. The implementation stage begins from Sprint 2.
+This repository now begins Sprint 2 front-end implementation with a customer view, fleet view, and manager dashboard prototype.
