@@ -56,8 +56,10 @@ This included:
 ```text
 Team_Project/
 |-- README.md
-|-- server.py
-|-- src/
+|-- backend/
+|   |-- __init__.py
+|   `-- server.py
+|-- frontend/
 |   |-- index.html
 |   |-- styles.css
 |   `-- main.js
@@ -89,7 +91,7 @@ This repository now begins Sprint 2 front-end implementation with a customer vie
 
 The current Sprint 2 codebase also includes:
 
-- a SQLite-backed backend in `server.py`
+- a SQLite-backed backend in `backend/server.py`
 - customer authentication with password validation and session handling
 - booking and issue APIs
 - automated backend tests in `tests/test_server.py`
@@ -107,7 +109,7 @@ The current Sprint 2 codebase also includes:
 Open the project folder in PowerShell and run:
 
 ```powershell
-python server.py
+python backend/server.py
 ```
 
 This starts the local backend and serves the frontend at:
