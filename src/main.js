@@ -38,7 +38,8 @@ const uiState = {
   authMode: "register",
   role: "customer",
   currentUser: null,
-  currentPage: "products"
+  currentPage: "products",
+  selectedScooterId: ""
 };
 
 const authScreen = document.getElementById("auth-screen");
@@ -56,9 +57,8 @@ const pages = document.querySelectorAll(".page");
 const managerTab = document.querySelector('[data-page="manager"]');
 const bookingForm = document.getElementById("booking-form");
 const issueForm = document.getElementById("issue-form");
-const endBookingButton = document.getElementById("end-booking-button");
-const cancelBookingButton = document.getElementById("cancel-booking-button");
 const logoutButton = document.getElementById("logout-button");
+const backToProductsButton = document.getElementById("back-to-products-button");
 
 const dataService = {
   createUser({ role, name, email }) {
@@ -103,24 +103,17 @@ const dataService = {
     });
     return { ok: true };
   },
-  updateLatestBookingStatus(nextStatus) {
-    const activeBooking = [...state.bookings].reverse().find((booking) => booking.status === "Active");
-    if (!activeBooking) {
+  endBookingByIndex(index) {
+    const booking = state.bookings[index];
+    if (!booking || booking.status !== "Active") {
       return { ok: false, message: "No active booking is available." };
     }
-
-    activeBooking.status = nextStatus;
-    const scooter = state.scooters.find((item) => item.id === activeBooking.scooterId);
+    booking.status = "Completed";
+    const scooter = state.scooters.find((item) => item.id === booking.scooterId);
     if (scooter) {
       scooter.available = true;
     }
-
-    return {
-      ok: true,
-      message: nextStatus === "Completed"
-        ? `Booking for ${activeBooking.customer} has been ended.`
-        : `Booking for ${activeBooking.customer} has been cancelled.`
-    };
+    return { ok: true, message: `Booking for ${booking.customer} has been ended.` };
   }
 };
 
@@ -158,6 +151,14 @@ function setPage(pageId) {
   });
 }
 
+function setBookingSelection(scooterId) {
+  uiState.selectedScooterId = scooterId;
+  const bookingSelect = document.getElementById("booking-scooter");
+  if (bookingSelect && scooterId) {
+    bookingSelect.value = scooterId;
+  }
+}
+
 function enterApp(user) {
   uiState.currentUser = user;
   authScreen.classList.add("hidden");
@@ -189,6 +190,10 @@ function renderScooterSelects() {
     )
     .join("");
 
+  if (uiState.selectedScooterId && available.some((scooter) => scooter.id === uiState.selectedScooterId)) {
+    bookingSelect.value = uiState.selectedScooterId;
+  }
+
   issueSelect.innerHTML = state.scooters
     .map((scooter) => `<option value="${scooter.id}">${scooter.id} - ${scooter.location}</option>`)
     .join("");
@@ -205,10 +210,18 @@ function renderFleet() {
           <span class="status ${scooter.available ? "status--available" : "status--booked"}">
             ${scooter.available ? "Available" : "Booked"}
           </span>
+          ${scooter.available ? `<div class="fleet__actions"><button type="button" class="button button--primary book-now-button" data-scooter-id="${scooter.id}">Book</button></div>` : ""}
         </article>
       `
     )
     .join("");
+
+  document.querySelectorAll(".book-now-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      setBookingSelection(button.dataset.scooterId);
+      setPage("book");
+    });
+  });
 }
 
 function renderBookingSummary() {
@@ -217,8 +230,6 @@ function renderBookingSummary() {
 
   if (!booking) {
     summary.innerHTML = "<div><span>No booking yet</span><strong>Create your first hire</strong></div>";
-    endBookingButton.disabled = true;
-    cancelBookingButton.disabled = true;
     return;
   }
 
@@ -229,10 +240,6 @@ function renderBookingSummary() {
     <div><span>Cost</span><strong>GBP ${booking.price}</strong></div>
     <div><span>Status</span><strong>${booking.status}</strong></div>
   `;
-
-  const isActive = booking.status === "Active";
-  endBookingButton.disabled = !isActive;
-  cancelBookingButton.disabled = !isActive;
 }
 
 function renderBookingHistory() {
@@ -240,16 +247,29 @@ function renderBookingHistory() {
     .slice()
     .reverse()
     .map(
-      (booking) => `
-        <div>
-          <span>${booking.customer}</span>
-          <strong>${booking.scooterId} / ${booking.durationHours}h / GBP ${booking.price} / ${booking.status}</strong>
-        </div>
-      `
+      (booking, reverseIndex) => {
+        const originalIndex = state.bookings.length - 1 - reverseIndex;
+        return `
+          <div>
+            <span>${booking.customer} / ${booking.scooterId}</span>
+            <strong>${booking.durationHours}h / GBP ${booking.price} / ${booking.status}</strong>
+            ${booking.status === "Active" ? `<button type="button" class="button button--ghost history-end-button" data-booking-index="${originalIndex}">End</button>` : ""}
+          </div>
+        `;
+      }
     )
     .join("");
+
   document.getElementById("customer-booking-history").innerHTML = content;
   document.getElementById("booking-history").innerHTML = content;
+
+  document.querySelectorAll(".history-end-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const result = dataService.endBookingByIndex(Number(button.dataset.bookingIndex));
+      document.getElementById("booking-action-feedback").textContent = result.message;
+      renderAll();
+    });
+  });
 }
 
 function renderIssues() {
@@ -342,7 +362,9 @@ bookingForm.addEventListener("submit", (event) => {
   document.getElementById("booking-feedback").textContent = result.message;
   if (result.ok) {
     bookingForm.reset();
+    uiState.selectedScooterId = "";
     renderAll();
+    setPage("booking-history");
   }
 });
 
@@ -358,19 +380,8 @@ issueForm.addEventListener("submit", (event) => {
   renderAll();
 });
 
-endBookingButton.addEventListener("click", () => {
-  const result = dataService.updateLatestBookingStatus("Completed");
-  document.getElementById("booking-action-feedback").textContent = result.message;
-  renderAll();
-});
-
-cancelBookingButton.addEventListener("click", () => {
-  const result = dataService.updateLatestBookingStatus("Cancelled");
-  document.getElementById("booking-action-feedback").textContent = result.message;
-  renderAll();
-});
-
 logoutButton.addEventListener("click", logout);
+backToProductsButton.addEventListener("click", () => setPage("products"));
 
 setRole("customer");
 setAuthMode("register");

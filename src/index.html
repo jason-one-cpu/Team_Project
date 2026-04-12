@@ -18,7 +18,7 @@
         </p>
         <div class="auth-badges">
           <span>Customer booking</span>
-          <span>Manager dashboard</span>
+          <span>Booking history</span>
           <span>Issue reporting</span>
         </div>
       </div>
@@ -88,9 +88,9 @@
     </header>
 
     <main class="shell">
-      <nav class="tabs" aria-label="Application pages" id="app-nav">
+      <nav class="tabs" aria-label="Application pages">
         <button class="tab is-active" data-page="products">Products</button>
-        <button class="tab" data-page="bookings">Bookings</button>
+        <button class="tab" data-page="booking-history">Booking history</button>
         <button class="tab" data-page="issues">Issues</button>
         <button class="tab hidden" data-page="manager">Manager</button>
       </nav>
@@ -101,7 +101,7 @@
             <p class="eyebrow">Products</p>
             <h2>Available scooters</h2>
             <p class="muted">
-              Browse the current fleet, compare battery levels, and select a scooter for your next booking.
+              Browse the fleet, check availability, and choose a scooter to book.
             </p>
           </div>
           <div class="summary-grid">
@@ -114,54 +114,41 @@
         <div class="fleet" id="fleet-grid"></div>
       </section>
 
-      <section class="page" id="bookings-page">
-        <div class="grid grid--two">
-          <article class="card">
-            <div class="card__header">
-              <div>
-                <p class="card__eyebrow">Booking</p>
-                <h2>Create a hire</h2>
-              </div>
+      <section class="page" id="book-page">
+        <article class="card">
+          <div class="card__header card__header--spread">
+            <div>
+              <p class="card__eyebrow">Booking</p>
+              <h2>Create a hire</h2>
             </div>
-            <form class="form" id="booking-form">
-              <label>
-                Customer name
-                <input type="text" id="customer-name" placeholder="Alex Chen">
-              </label>
-              <label>
-                Scooter
-                <select id="booking-scooter"></select>
-              </label>
-              <label>
-                Duration
-                <select id="booking-duration">
-                  <option value="1">1 hour - GBP 4</option>
-                  <option value="4">4 hours - GBP 12</option>
-                  <option value="24">1 day - GBP 20</option>
-                  <option value="168">1 week - GBP 60</option>
-                </select>
-              </label>
-              <button type="submit" class="button button--primary">Confirm booking</button>
-            </form>
-            <p class="feedback" id="booking-feedback"></p>
-          </article>
+            <button type="button" class="button button--ghost" id="back-to-products-button">Back to products</button>
+          </div>
+          <form class="form" id="booking-form">
+            <label>
+              Customer name
+              <input type="text" id="customer-name" placeholder="Alex Chen">
+            </label>
+            <label>
+              Scooter
+              <select id="booking-scooter"></select>
+            </label>
+            <label>
+              Duration
+              <select id="booking-duration">
+                <option value="1">1 hour - GBP 4</option>
+                <option value="4">4 hours - GBP 12</option>
+                <option value="24">1 day - GBP 20</option>
+                <option value="168">1 week - GBP 60</option>
+              </select>
+            </label>
+            <button type="submit" class="button button--primary">Confirm booking</button>
+          </form>
+          <p class="feedback" id="booking-feedback"></p>
+          <div id="booking-summary" class="stack"></div>
+        </article>
+      </section>
 
-          <article class="card">
-            <div class="card__header">
-              <div>
-                <p class="card__eyebrow">Current booking</p>
-                <h2>Latest summary</h2>
-              </div>
-            </div>
-            <div id="booking-summary" class="stack"></div>
-            <div class="action-row">
-              <button type="button" class="button button--ghost" id="end-booking-button">End booking</button>
-              <button type="button" class="button button--danger" id="cancel-booking-button">Cancel booking</button>
-            </div>
-            <p class="feedback" id="booking-action-feedback"></p>
-          </article>
-        </div>
-
+      <section class="page" id="booking-history-page">
         <article class="card">
           <div class="card__header">
             <div>
@@ -170,6 +157,7 @@
             </div>
           </div>
           <div id="customer-booking-history" class="list"></div>
+          <p class="feedback" id="booking-action-feedback"></p>
         </article>
       </section>
 
