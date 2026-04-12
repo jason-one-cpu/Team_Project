@@ -94,21 +94,29 @@ The current Sprint 2 codebase also includes:
 - booking and issue APIs
 - automated backend tests in `tests/test_server.py`
 
-## Run Locally
+## Requirements
 
-Start the SQLite-backed backend and front end together with:
+- Python 3.11 or newer is recommended
+- no third-party packages are required
+- SQLite is used through Python's standard library
+
+## Project Commands
+
+### Start the project
+
+Open the project folder in PowerShell and run:
 
 ```powershell
 python server.py
 ```
 
-Then open:
+This starts the local backend and serves the frontend at:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-## Run Tests
+### Run tests
 
 ```powershell
 python -m unittest discover -s tests -v
