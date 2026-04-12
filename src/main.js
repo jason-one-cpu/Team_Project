@@ -1,4 +1,7 @@
 const state = {
+  users: [
+    { id: "U-001", name: "Demo User", email: "demo@cityhop.app" }
+  ],
   scooters: [
     { id: "SC-101", location: "City Square", battery: 88, available: true },
     { id: "SC-102", location: "Train Station", battery: 74, available: true },
@@ -33,9 +36,55 @@ const state = {
 const tabs = document.querySelectorAll(".tab");
 const tabTargets = document.querySelectorAll("[data-tab-target]");
 const views = document.querySelectorAll(".view");
+const registerForm = document.getElementById("register-form");
 const bookingForm = document.getElementById("booking-form");
 const issueForm = document.getElementById("issue-form");
 const loginForm = document.getElementById("login-form");
+
+const dataService = {
+  getState() {
+    return structuredClone(state);
+  },
+  createUser({ name, email }) {
+    const user = {
+      id: `U-${String(state.users.length + 1).padStart(3, "0")}`,
+      name,
+      email
+    };
+    state.users.push(user);
+    return user;
+  },
+  createBooking({ customer, scooterId, durationHours }) {
+    const scooter = state.scooters.find((item) => item.id === scooterId);
+    if (!customer || !scooter || !scooter.available) {
+      return { ok: false, message: "Please choose an available scooter and enter a customer name." };
+    }
+
+    scooter.available = false;
+    const booking = {
+      customer,
+      scooterId,
+      durationHours,
+      price: state.priceMap[durationHours],
+      status: "Active"
+    };
+    state.bookings.push(booking);
+    return { ok: true, message: `Booking created for ${customer}.`, booking };
+  },
+  createIssue({ scooterId, description }) {
+    if (!description) {
+      return null;
+    }
+
+    const issue = {
+      scooterId,
+      description,
+      priority: description.toLowerCase().includes("brake") ? "High" : "Medium"
+    };
+    state.issues.unshift(issue);
+    return issue;
+  }
+};
 
 function switchTab(targetId) {
   tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.tab === targetId));
@@ -103,6 +152,22 @@ function renderBookingSummary() {
   `;
 }
 
+function renderCustomerHistory() {
+  const history = document.getElementById("customer-booking-history");
+  history.innerHTML = state.bookings
+    .slice()
+    .reverse()
+    .map(
+      (booking, index) => `
+        <div>
+          <span>${index === 0 ? "Latest booking" : "Previous booking"}</span>
+          <strong>${booking.customer} / ${booking.scooterId} / ${booking.durationHours}h / GBP ${booking.price}</strong>
+        </div>
+      `
+    )
+    .join("");
+}
+
 function renderManager() {
   const totalRevenue = state.bookings.reduce((sum, booking) => sum + booking.price, 0);
   const availableCount = state.scooters.filter((scooter) => scooter.available).length;
@@ -145,12 +210,32 @@ function renderAll() {
   renderScooterSelects();
   renderFleet();
   renderBookingSummary();
+  renderCustomerHistory();
   renderManager();
 }
 
+registerForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const name = document.getElementById("register-name").value.trim();
+  const email = document.getElementById("register-email").value.trim();
+
+  if (!name || !email) {
+    document.getElementById("register-feedback").textContent = "Please enter both name and email.";
+    return;
+  }
+
+  const user = dataService.createUser({ name, email });
+  registerForm.reset();
+  document.getElementById("register-feedback").textContent = `Account created locally for ${user.name}.`;
+});
+
 loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  document.getElementById("login-feedback").textContent = "Login interaction recorded for frontend demo.";
+  const email = document.getElementById("login-email").value.trim();
+  const exists = dataService.getState().users.some((user) => user.email === email);
+  document.getElementById("login-feedback").textContent = exists
+    ? "Login interaction recorded for frontend demo."
+    : "No matching demo account found. Create one above first.";
 });
 
 bookingForm.addEventListener("submit", (event) => {
@@ -158,24 +243,19 @@ bookingForm.addEventListener("submit", (event) => {
   const customerName = document.getElementById("customer-name").value.trim();
   const scooterId = document.getElementById("booking-scooter").value;
   const durationHours = Number(document.getElementById("booking-duration").value);
-  const scooter = state.scooters.find((item) => item.id === scooterId);
+  const result = dataService.createBooking({
+    customer: customerName,
+    scooterId,
+    durationHours
+  });
 
-  if (!customerName || !scooter || !scooter.available) {
-    document.getElementById("booking-feedback").textContent = "Please choose an available scooter and enter a customer name.";
+  if (!result.ok) {
+    document.getElementById("booking-feedback").textContent = result.message;
     return;
   }
 
-  scooter.available = false;
-  state.bookings.push({
-    customer: customerName,
-    scooterId,
-    durationHours,
-    price: state.priceMap[durationHours],
-    status: "Active"
-  });
-
   bookingForm.reset();
-  document.getElementById("booking-feedback").textContent = `Booking created for ${customerName}.`;
+  document.getElementById("booking-feedback").textContent = result.message;
   renderAll();
 });
 
@@ -188,10 +268,9 @@ issueForm.addEventListener("submit", (event) => {
     return;
   }
 
-  state.issues.unshift({
+  dataService.createIssue({
     scooterId,
-    description,
-    priority: description.toLowerCase().includes("brake") ? "High" : "Medium"
+    description
   });
 
   issueForm.reset();

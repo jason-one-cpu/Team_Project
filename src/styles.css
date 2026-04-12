@@ -186,6 +186,10 @@ textarea {
   margin: 0;
 }
 
+.card__header {
+  margin-bottom: 16px;
+}
+
 .form {
   display: grid;
   gap: 14px;
@@ -234,6 +238,16 @@ textarea {
   border: 1px solid var(--line);
 }
 
+.list > div span,
+.stack > div span {
+  color: var(--muted);
+}
+
+.list > div strong,
+.stack > div strong {
+  text-align: right;
+}
+
 .fleet {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -276,5 +290,10 @@ textarea {
     display: flex;
     width: 100%;
     justify-content: space-between;
+  }
+
+  .list > div,
+  .stack > div {
+    flex-direction: column;
   }
 }

@@ -56,6 +56,31 @@
           <div class="card__header">
             <div>
               <p class="card__eyebrow">Account</p>
+              <h2>Create account</h2>
+            </div>
+          </div>
+          <form class="form" id="register-form">
+            <label>
+              Full name
+              <input type="text" id="register-name" placeholder="Alex Chen">
+            </label>
+            <label>
+              Email
+              <input type="email" id="register-email" placeholder="alex@example.com">
+            </label>
+            <label>
+              Password
+              <input type="password" id="register-password" placeholder="Choose password">
+            </label>
+            <button type="submit" class="button button--ghost">Create account</button>
+          </form>
+          <p class="feedback" id="register-feedback">Frontend prototype only. Account creation is simulated locally.</p>
+        </article>
+
+        <article class="card">
+          <div class="card__header">
+            <div>
+              <p class="card__eyebrow">Account</p>
               <h2>Sign in</h2>
             </div>
           </div>
@@ -135,6 +160,16 @@
           </form>
         </article>
       </div>
+
+      <article class="card">
+        <div class="card__header">
+          <div>
+            <p class="card__eyebrow">History</p>
+            <h2>Customer booking history</h2>
+          </div>
+        </div>
+        <div id="customer-booking-history" class="list"></div>
+      </article>
     </section>
 
     <section class="view" id="fleet">
