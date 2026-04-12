@@ -21,7 +21,6 @@ Manager-side features include:
 
 ## Team Members
 
-<<<<<<< HEAD
 ### Sun Zixuan (Team Leader)
 
 Role: Backend Developer and Project Coordinator  
@@ -39,88 +38,57 @@ Responsibilities: Exploring technical options, contributing creative ideas for t
 Role: Documentation and Quality Support  
 Belbin Type: Team Worker (TW) and Completer/Finisher (CF)  
 Responsibilities: Supporting team communication, maintaining documentation quality, checking sprint records for completeness, and helping ensure that tasks and materials are finished carefully.
-=======
-| Name | Username / Contact | Belbin roles |
-|---|---|---|
-| Sun Zixuan | 2944158585@qq.com | CH, CW |
-| webb | dwb1660322730 | PL, RI |
-| sfd23 | findingP | TW, CF |
->>>>>>> c2c3ab9845d226911e21bb3cafe35f7d38666cbd
 
 ## Sprint 1 Focus
 
-The goal of Sprint 1 is to establish the project environment and complete the initial planning and design work. This includes:
+Sprint 1 was used as a preparation stage. The main goals were to establish the project environment, agree the initial design direction, and prepare the team for implementation work in later sprints.
+
+This included:
 
 - setting up the repository structure
-- creating and assigning Sprint 1 tasks
-- preparing the project wiki
+- creating initial GitHub issues and wiki records
+- documenting team roles and responsibilities
 - discussing the initial architecture
 - identifying the first backlog items for implementation
 
 ## Proposed Repository Structure
 
 ```text
-<<<<<<< HEAD
-XJCO2913-Team-Project/
+Team_Project/
 |-- README.md
 |-- docs/
 |   |-- team-members.md
 |   |-- sprint1-plan-and-initial-design.md
 |   |-- sprint1-outcomes.md
-|   `-- meeting-minutes-and-attendance.md
+|   |-- meeting-minutes-and-attendance.md
+|   |-- meeting-2-sprint2-preparation.md
+|   |-- sprint2-plan-and-design.md
+|   |-- sprint2-task-allocation.md
+|   |-- sprint2-outcomes.md
+|   `-- sprint2-sprint3-sprint4-github-issues.md
 |-- src/
 |-- tests/
 `-- .gitignore
-=======
-code/
-├── README.md
-├── docs/
-│   ├── sprint1-plan-and-initial-design.md
-│   ├── sprint1-outcomes.md
-│   └── meeting-minutes-and-attendance.md
-├── src/
-├── tests/
-└── .gitignore
->>>>>>> c2c3ab9845d226911e21bb3cafe35f7d38666cbd
 ```
 
 ## Initial Technical Direction
 
-The team plans to build a client-server application for e-scooter hiring. At this stage, the exact framework and database can still be adjusted after further discussion and evaluation. The initial design work in Sprint 1 will focus on:
+The team plans to build a client-server application for e-scooter hiring. At this stage, the exact framework and database can still be adjusted after further discussion and evaluation.
 
-- user-facing and manager-facing functions
-- system architecture
-- backlog prioritisation
-- issue tracking and team workflow
+The system is expected to include:
+
+- a customer-facing interface
+- a management-facing interface
+- server-side booking and issue-handling logic
+- persistent storage for users, scooters, bookings, and pricing data
 
 ## Team Workflow
 
 - Project tasks are tracked using GitHub Issues.
 - Sprint work is organised through milestones and labels.
-- Design notes, sprint plans, outcomes, and meeting records are documented in the project wiki.
+- Design notes, sprint plans, outcomes, and meeting records are documented in the project wiki and repository docs.
 - Team members discuss progress in regular sprint meetings and record decisions clearly.
 
 ## Status
 
-This repository currently contains the initial CW1 project environment materials for Sprint 1 setup.
-<<<<<<< HEAD
-
-## Demo
-
-A lightweight demo is available with a simple Python backend in `server.py` and a front-end in `src/`.
-
-To run it locally:
-
-1. Open a PowerShell window in the project root.
-2. Run `python server.py`.
-3. Open `http://127.0.0.1:8000` in your browser.
-
-The current demo includes:
-
-- customer booking simulation
-- scooter availability overview
-- issue reporting
-- manager-side booking and revenue summary
-- a reset button for classroom demo use
-=======
->>>>>>> c2c3ab9845d226911e21bb3cafe35f7d38666cbd
+This repository currently contains the project preparation materials and sprint planning documents. The implementation stage begins from Sprint 2.
