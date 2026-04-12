@@ -1,6 +1,7 @@
 const state = {
   users: [
-    { id: "U-001", name: "Demo User", email: "demo@cityhop.app" }
+    { id: "U-001", role: "customer", name: "Demo User", email: "demo@cityhop.app" },
+    { id: "M-001", role: "manager", name: "Operations Lead", email: "manager@cityhop.app" }
   ],
   scooters: [
     { id: "SC-101", location: "City Square", battery: 88, available: true },
@@ -33,26 +34,46 @@ const state = {
   }
 };
 
-const tabs = document.querySelectorAll(".tab");
-const tabTargets = document.querySelectorAll("[data-tab-target]");
-const views = document.querySelectorAll(".view");
+const uiState = {
+  authMode: "register",
+  role: "customer",
+  currentUser: null,
+  currentPage: "products"
+};
+
+const authScreen = document.getElementById("auth-screen");
+const appShell = document.getElementById("app-shell");
+const authTitle = document.getElementById("auth-title");
+const authSubtitle = document.getElementById("auth-subtitle");
+const authRoleLabel = document.getElementById("auth-role-label");
+const authFeedback = document.getElementById("auth-feedback");
 const registerForm = document.getElementById("register-form");
+const loginForm = document.getElementById("login-form");
+const authModeButtons = document.querySelectorAll("[data-auth-mode]");
+const roleButtons = document.querySelectorAll("[data-role]");
+const tabs = document.querySelectorAll(".tab");
+const pages = document.querySelectorAll(".page");
+const managerTab = document.querySelector('[data-page="manager"]');
 const bookingForm = document.getElementById("booking-form");
 const issueForm = document.getElementById("issue-form");
-const loginForm = document.getElementById("login-form");
+const endBookingButton = document.getElementById("end-booking-button");
+const cancelBookingButton = document.getElementById("cancel-booking-button");
+const logoutButton = document.getElementById("logout-button");
 
 const dataService = {
-  getState() {
-    return structuredClone(state);
-  },
-  createUser({ name, email }) {
+  createUser({ role, name, email }) {
+    const prefix = role === "manager" ? "M" : "U";
     const user = {
-      id: `U-${String(state.users.length + 1).padStart(3, "0")}`,
+      id: `${prefix}-${String(state.users.length + 1).padStart(3, "0")}`,
+      role,
       name,
       email
     };
     state.users.push(user);
     return user;
+  },
+  findUserByEmail(email, role) {
+    return state.users.find((user) => user.email === email && user.role === role);
   },
   createBooking({ customer, scooterId, durationHours }) {
     const scooter = state.scooters.find((item) => item.id === scooterId);
@@ -73,31 +94,88 @@ const dataService = {
   },
   createIssue({ scooterId, description }) {
     if (!description) {
-      return null;
+      return { ok: false };
     }
-
-    const issue = {
+    state.issues.unshift({
       scooterId,
       description,
       priority: description.toLowerCase().includes("brake") ? "High" : "Medium"
+    });
+    return { ok: true };
+  },
+  updateLatestBookingStatus(nextStatus) {
+    const activeBooking = [...state.bookings].reverse().find((booking) => booking.status === "Active");
+    if (!activeBooking) {
+      return { ok: false, message: "No active booking is available." };
+    }
+
+    activeBooking.status = nextStatus;
+    const scooter = state.scooters.find((item) => item.id === activeBooking.scooterId);
+    if (scooter) {
+      scooter.available = true;
+    }
+
+    return {
+      ok: true,
+      message: nextStatus === "Completed"
+        ? `Booking for ${activeBooking.customer} has been ended.`
+        : `Booking for ${activeBooking.customer} has been cancelled.`
     };
-    state.issues.unshift(issue);
-    return issue;
   }
 };
 
-function switchTab(targetId) {
-  tabs.forEach((tab) => tab.classList.toggle("is-active", tab.dataset.tab === targetId));
-  views.forEach((view) => view.classList.toggle("is-active", view.id === targetId));
+function setAuthMode(mode) {
+  uiState.authMode = mode;
+  authModeButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.authMode === mode);
+  });
+  registerForm.classList.toggle("hidden", mode !== "register");
+  loginForm.classList.toggle("hidden", mode !== "login");
+  authTitle.textContent = mode === "register" ? "Create account" : "Sign in";
+  authSubtitle.textContent = mode === "register"
+    ? `Register a new ${uiState.role} account to enter the platform.`
+    : `Login as a ${uiState.role} to continue into the platform.`;
+  authFeedback.textContent = "This is a local frontend prototype. Accounts are stored in demo memory.";
 }
 
-tabs.forEach((tab) => {
-  tab.addEventListener("click", () => switchTab(tab.dataset.tab));
-});
+function setRole(role) {
+  uiState.role = role;
+  roleButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.role === role);
+  });
+  authRoleLabel.textContent = role === "manager" ? "Manager Access" : "Customer Access";
+  document.getElementById("login-button").textContent = role === "manager" ? "Login as manager" : "Login";
+  setAuthMode(uiState.authMode);
+}
 
-tabTargets.forEach((button) => {
-  button.addEventListener("click", () => switchTab(button.dataset.tabTarget));
-});
+function setPage(pageId) {
+  uiState.currentPage = pageId;
+  tabs.forEach((tab) => {
+    tab.classList.toggle("is-active", tab.dataset.page === pageId);
+  });
+  pages.forEach((page) => {
+    page.classList.toggle("is-active", page.id === `${pageId}-page`);
+  });
+}
+
+function enterApp(user) {
+  uiState.currentUser = user;
+  authScreen.classList.add("hidden");
+  appShell.classList.remove("hidden");
+  document.getElementById("welcome-text").textContent = `Welcome, ${user.name}`;
+  document.getElementById("welcome-role").textContent = user.role === "manager" ? "Manager" : "Customer";
+  document.getElementById("app-title").textContent = user.role === "manager" ? "Manager Portal" : "Customer Portal";
+  managerTab.classList.toggle("hidden", user.role !== "manager");
+  setPage(user.role === "manager" ? "manager" : "products");
+  renderAll();
+}
+
+function logout() {
+  uiState.currentUser = null;
+  appShell.classList.add("hidden");
+  authScreen.classList.remove("hidden");
+  setAuthMode("login");
+}
 
 function renderScooterSelects() {
   const bookingSelect = document.getElementById("booking-scooter");
@@ -117,18 +195,17 @@ function renderScooterSelects() {
 }
 
 function renderFleet() {
-  const fleetGrid = document.getElementById("fleet-grid");
-  fleetGrid.innerHTML = state.scooters
+  document.getElementById("fleet-grid").innerHTML = state.scooters
     .map(
       (scooter) => `
-        <div class="fleet__item">
+        <article class="fleet__item">
           <h3>${scooter.id}</h3>
           <p><strong>Location:</strong> ${scooter.location}</p>
           <p><strong>Battery:</strong> ${scooter.battery}%</p>
           <span class="status ${scooter.available ? "status--available" : "status--booked"}">
             ${scooter.available ? "Available" : "Booked"}
           </span>
-        </div>
+        </article>
       `
     )
     .join("");
@@ -136,10 +213,12 @@ function renderFleet() {
 
 function renderBookingSummary() {
   const summary = document.getElementById("booking-summary");
-  const booking = state.bookings[state.bookings.length - 1];
+  const booking = [...state.bookings].reverse().find((item) => item.status === "Active") || state.bookings[state.bookings.length - 1];
 
   if (!booking) {
-    summary.innerHTML = "<div><span>No active booking yet.</span></div>";
+    summary.innerHTML = "<div><span>No booking yet</span><strong>Create your first hire</strong></div>";
+    endBookingButton.disabled = true;
+    cancelBookingButton.disabled = true;
     return;
   }
 
@@ -150,51 +229,31 @@ function renderBookingSummary() {
     <div><span>Cost</span><strong>GBP ${booking.price}</strong></div>
     <div><span>Status</span><strong>${booking.status}</strong></div>
   `;
+
+  const isActive = booking.status === "Active";
+  endBookingButton.disabled = !isActive;
+  cancelBookingButton.disabled = !isActive;
 }
 
-function renderCustomerHistory() {
-  const history = document.getElementById("customer-booking-history");
-  history.innerHTML = state.bookings
+function renderBookingHistory() {
+  const content = state.bookings
     .slice()
     .reverse()
-    .map(
-      (booking, index) => `
-        <div>
-          <span>${index === 0 ? "Latest booking" : "Previous booking"}</span>
-          <strong>${booking.customer} / ${booking.scooterId} / ${booking.durationHours}h / GBP ${booking.price}</strong>
-        </div>
-      `
-    )
-    .join("");
-}
-
-function renderManager() {
-  const totalRevenue = state.bookings.reduce((sum, booking) => sum + booking.price, 0);
-  const availableCount = state.scooters.filter((scooter) => scooter.available).length;
-  const fleetAvailability = Math.round((availableCount / state.scooters.length) * 100);
-
-  document.getElementById("summary-available").textContent = availableCount;
-  document.getElementById("summary-active").textContent = state.bookings.filter((booking) => booking.status === "Active").length;
-  document.getElementById("summary-revenue").textContent = `GBP ${totalRevenue}`;
-  document.getElementById("summary-issues").textContent = state.issues.length;
-
-  document.getElementById("manager-bookings").textContent = state.bookings.length;
-  document.getElementById("manager-revenue").textContent = `GBP ${totalRevenue}`;
-  document.getElementById("manager-availability").textContent = `${fleetAvailability}%`;
-  document.getElementById("manager-issue-count").textContent = state.issues.length;
-
-  document.getElementById("booking-history").innerHTML = state.bookings
     .map(
       (booking) => `
         <div>
           <span>${booking.customer}</span>
-          <strong>${booking.scooterId} / ${booking.durationHours}h / GBP ${booking.price}</strong>
+          <strong>${booking.scooterId} / ${booking.durationHours}h / GBP ${booking.price} / ${booking.status}</strong>
         </div>
       `
     )
     .join("");
+  document.getElementById("customer-booking-history").innerHTML = content;
+  document.getElementById("booking-history").innerHTML = content;
+}
 
-  document.getElementById("issue-list").innerHTML = state.issues
+function renderIssues() {
+  const content = state.issues
     .map(
       (issue) => `
         <div>
@@ -204,77 +263,113 @@ function renderManager() {
       `
     )
     .join("");
+  document.getElementById("issue-list").innerHTML = content;
+  document.getElementById("manager-issue-list").innerHTML = content;
+}
+
+function renderSummaries() {
+  const totalRevenue = state.bookings.reduce((sum, booking) => sum + booking.price, 0);
+  const availableCount = state.scooters.filter((scooter) => scooter.available).length;
+  const activeCount = state.bookings.filter((booking) => booking.status === "Active").length;
+  const fleetAvailability = Math.round((availableCount / state.scooters.length) * 100);
+
+  document.getElementById("summary-available").textContent = availableCount;
+  document.getElementById("summary-active").textContent = activeCount;
+  document.getElementById("summary-revenue").textContent = `GBP ${totalRevenue}`;
+  document.getElementById("summary-issues").textContent = state.issues.length;
+
+  document.getElementById("manager-bookings").textContent = state.bookings.length;
+  document.getElementById("manager-revenue").textContent = `GBP ${totalRevenue}`;
+  document.getElementById("manager-availability").textContent = `${fleetAvailability}%`;
+  document.getElementById("manager-issue-count").textContent = state.issues.length;
 }
 
 function renderAll() {
   renderScooterSelects();
   renderFleet();
   renderBookingSummary();
-  renderCustomerHistory();
-  renderManager();
+  renderBookingHistory();
+  renderIssues();
+  renderSummaries();
 }
+
+authModeButtons.forEach((button) => {
+  button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
+});
+
+roleButtons.forEach((button) => {
+  button.addEventListener("click", () => setRole(button.dataset.role));
+});
+
+tabs.forEach((tab) => {
+  tab.addEventListener("click", () => setPage(tab.dataset.page));
+});
 
 registerForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const name = document.getElementById("register-name").value.trim();
   const email = document.getElementById("register-email").value.trim();
-
   if (!name || !email) {
-    document.getElementById("register-feedback").textContent = "Please enter both name and email.";
+    authFeedback.textContent = "Please complete all required fields.";
     return;
   }
-
-  const user = dataService.createUser({ name, email });
+  const user = dataService.createUser({ role: uiState.role, name, email });
   registerForm.reset();
-  document.getElementById("register-feedback").textContent = `Account created locally for ${user.name}.`;
+  authFeedback.textContent = `Account created for ${user.name}. You can now log in.`;
+  setAuthMode("login");
 });
 
 loginForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const email = document.getElementById("login-email").value.trim();
-  const exists = dataService.getState().users.some((user) => user.email === email);
-  document.getElementById("login-feedback").textContent = exists
-    ? "Login interaction recorded for frontend demo."
-    : "No matching demo account found. Create one above first.";
+  const user = dataService.findUserByEmail(email, uiState.role);
+  if (!user) {
+    authFeedback.textContent = `No ${uiState.role} account found for that email.`;
+    return;
+  }
+  loginForm.reset();
+  enterApp(user);
 });
 
 bookingForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const customerName = document.getElementById("customer-name").value.trim();
+  const customer = document.getElementById("customer-name").value.trim() || uiState.currentUser?.name || "";
   const scooterId = document.getElementById("booking-scooter").value;
   const durationHours = Number(document.getElementById("booking-duration").value);
-  const result = dataService.createBooking({
-    customer: customerName,
-    scooterId,
-    durationHours
-  });
-
-  if (!result.ok) {
-    document.getElementById("booking-feedback").textContent = result.message;
-    return;
-  }
-
-  bookingForm.reset();
+  const result = dataService.createBooking({ customer, scooterId, durationHours });
   document.getElementById("booking-feedback").textContent = result.message;
-  renderAll();
+  if (result.ok) {
+    bookingForm.reset();
+    renderAll();
+  }
 });
 
 issueForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const scooterId = document.getElementById("issue-scooter").value;
   const description = document.getElementById("issue-description").value.trim();
-
-  if (!description) {
+  const result = dataService.createIssue({ scooterId, description });
+  if (!result.ok) {
     return;
   }
-
-  dataService.createIssue({
-    scooterId,
-    description
-  });
-
   issueForm.reset();
   renderAll();
 });
 
+endBookingButton.addEventListener("click", () => {
+  const result = dataService.updateLatestBookingStatus("Completed");
+  document.getElementById("booking-action-feedback").textContent = result.message;
+  renderAll();
+});
+
+cancelBookingButton.addEventListener("click", () => {
+  const result = dataService.updateLatestBookingStatus("Cancelled");
+  document.getElementById("booking-action-feedback").textContent = result.message;
+  renderAll();
+});
+
+logoutButton.addEventListener("click", logout);
+
+setRole("customer");
+setAuthMode("register");
 renderAll();
