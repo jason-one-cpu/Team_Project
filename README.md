@@ -87,6 +87,13 @@ The system is expected to include:
 
 This repository now begins Sprint 2 front-end implementation with a customer view, fleet view, and manager dashboard prototype.
 
+The current Sprint 2 codebase also includes:
+
+- a SQLite-backed backend in `server.py`
+- customer authentication with password validation and session handling
+- booking and issue APIs
+- automated backend tests in `tests/test_server.py`
+
 ## Run Locally
 
 Start the SQLite-backed backend and front end together with:
@@ -99,4 +106,10 @@ Then open:
 
 ```text
 http://127.0.0.1:8000
+```
+
+## Run Tests
+
+```powershell
+python -m unittest discover -s tests -v
 ```
