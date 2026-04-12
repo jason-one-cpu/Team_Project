@@ -8,8 +8,8 @@ from urllib.parse import urlparse
 
 
 BASE_DIR = Path(__file__).resolve().parent
-SRC_DIR = BASE_DIR / "src"
-DB_PATH = BASE_DIR / "cityhop.db"
+FRONTEND_DIR = BASE_DIR.parent / "frontend"
+DB_PATH = BASE_DIR.parent / "cityhop.db"
 SESSION_HEADER = "X-Session-Token"
 SESSIONS = {}
 
@@ -435,8 +435,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def serve_static(self, request_path):
         path = "/index.html" if request_path in {"/", ""} else request_path
-        target = (SRC_DIR / path.lstrip("/")).resolve()
-        if target != SRC_DIR and SRC_DIR not in target.parents:
+        target = (FRONTEND_DIR / path.lstrip("/")).resolve()
+        if target != FRONTEND_DIR and FRONTEND_DIR not in target.parents:
             return self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
         if not target.exists() or target.is_dir():
             return self.send_error(HTTPStatus.NOT_FOUND, "Not found")

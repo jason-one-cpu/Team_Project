@@ -5,8 +5,13 @@ import threading
 import time
 import unittest
 from pathlib import Path
+import sys
 
-import server
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from backend import server
 
 
 class CityHopServerTests(unittest.TestCase):
@@ -14,10 +19,10 @@ class CityHopServerTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.original_db_path = server.DB_PATH
-        cls.original_src_dir = server.SRC_DIR
+        cls.original_frontend_dir = server.FRONTEND_DIR
 
         server.DB_PATH = Path(cls.temp_dir.name) / "test_cityhop.db"
-        server.SRC_DIR = cls.original_src_dir
+        server.FRONTEND_DIR = cls.original_frontend_dir
         server.SESSIONS.clear()
         server.init_db()
 
@@ -34,7 +39,7 @@ class CityHopServerTests(unittest.TestCase):
         cls.thread.join(timeout=2)
         server.SESSIONS.clear()
         server.DB_PATH = cls.original_db_path
-        server.SRC_DIR = cls.original_src_dir
+        server.FRONTEND_DIR = cls.original_frontend_dir
         time.sleep(0.1)
         try:
             cls.temp_dir.cleanup()
