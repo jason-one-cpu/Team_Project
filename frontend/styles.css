@@ -415,6 +415,61 @@ textarea {
   min-height: 0;
 }
 
+.list > .user-entry {
+  display: grid;
+  align-items: stretch;
+}
+
+.user-entry__summary {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.user-entry__summary small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.user-entry__orders {
+  display: none;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(216, 204, 186, 0.8);
+  width: 100%;
+}
+
+.user-entry__toggle-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.user-entry__toggle-input:checked ~ .user-entry__orders {
+  display: grid;
+}
+
+.user-entry__order {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) 1fr;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.user-entry__order strong {
+  text-align: right;
+}
+
+.user-entry__toggle {
+  text-align: center;
+}
+
 .map-stage .leaflet-control-attribution {
   font-size: 0.68rem;
 }

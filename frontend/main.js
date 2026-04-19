@@ -6,6 +6,7 @@ const uiState = {
   currentPage: "products",
   currentManagerSection: "store-manager",
   selectedManagerStoreId: null,
+  expandedManagerUserId: "",
   selectedScooterId: "",
   data: {
     users: [],
@@ -1053,21 +1054,48 @@ function destroyRouteMap() {
 }
 
 function renderManagerUsers() {
+  const userList = document.getElementById("manager-user-list");
+  if (!userList) {
+    return;
+  }
+
   const content = uiState.data.users
-    .map((user) => {
+    .map((user, index) => {
       const userBookings = uiState.data.bookings.filter((booking) => booking.customer === user.name);
       const activeBookings = userBookings.filter((booking) => booking.status === "Active").length;
+      const toggleId = `user-orders-toggle-${index}`;
+      const bookingRows = userBookings.length
+        ? userBookings
+            .slice()
+            .reverse()
+            .map(
+              (booking) => `
+                <div class="user-entry__order">
+                  <span>${booking.scooterId}</span>
+                  <strong>${booking.startTime || "-"} to ${booking.endTime || "-"} / GBP ${booking.price} / ${booking.status}</strong>
+                </div>
+              `
+            )
+            .join("")
+        : `<div class="user-entry__order"><span>No bookings</span><strong>This user has no booking records.</strong></div>`;
       return `
-        <div>
-          <span>${user.name} / ${user.role}</span>
-          <strong>${user.email}</strong>
-          <small>${userBookings.length} bookings, ${activeBookings} active</small>
+        <div class="user-entry" data-user-id="${user.id}">
+          <div class="user-entry__summary">
+            <div>
+              <span>${user.name} / ${user.role}</span>
+              <small>${userBookings.length} bookings, ${activeBookings} active</small>
+            </div>
+            <strong>${user.email}</strong>
+            <label class="button button--ghost user-entry__toggle" for="${toggleId}">View orders</label>
+          </div>
+          <input type="checkbox" class="user-entry__toggle-input" id="${toggleId}">
+          <div class="user-entry__orders">${bookingRows}</div>
         </div>
       `;
     })
     .join("");
 
-  document.getElementById("manager-user-list").innerHTML = content || "<div><span>No users found</span></div>";
+  userList.innerHTML = content || "<div><span>No users found</span></div>";
 }
 
 function renderIssues() {
