@@ -89,7 +89,7 @@ class CityHopServerTests(unittest.TestCase):
         status, payload = self.request(
             "/api/login",
             method="POST",
-            body={"role": "manager", "email": "manager@cityhop.app", "password": "manager"},
+            body={"role": "manager", "email": "admin", "password": "admin"},
         )
         self.assertEqual(status, 200)
         self.assertIn("sessionToken", payload)
@@ -162,6 +162,7 @@ class CityHopServerTests(unittest.TestCase):
         created = next((booking for booking in payload["state"]["bookings"] if booking["scooterId"] == "SC-101"), None)
         self.assertIsNotNone(created)
         self.assertEqual(created["status"], "Active")
+        self.assertEqual(created["price"], 4)
 
     def test_customer_can_end_own_booking(self):
         token = self.login_demo_customer()
@@ -200,7 +201,7 @@ class CityHopServerTests(unittest.TestCase):
         active = next(
             booking
             for booking in reversed(create_payload["state"]["bookings"])
-            if booking["customer"] == "Operations Lead" and booking["status"] == "Active"
+            if booking["customer"] == "Admin" and booking["status"] == "Active"
         )
 
         customer_token = self.login_demo_customer()

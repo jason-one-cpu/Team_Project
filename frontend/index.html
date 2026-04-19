@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CityHop E-Scooter</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  >
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -46,8 +52,8 @@
 
         <form class="form hidden" id="login-form">
           <label>
-            Email
-            <input type="email" id="login-email" placeholder="alex@example.com">
+            Email or username
+            <input type="text" id="login-email" placeholder="alex@example.com or admin">
           </label>
           <label>
             Password
@@ -62,6 +68,10 @@
           <div class="switch-group">
             <button type="button" class="switch-pill is-active" data-auth-mode="register">Register</button>
             <button type="button" class="switch-pill" data-auth-mode="login">Login</button>
+          </div>
+          <div class="switch-group">
+            <button type="button" class="switch-pill is-active" data-role="customer">Customer</button>
+            <button type="button" class="switch-pill" data-role="manager">Manager</button>
           </div>
         </div>
       </div>
@@ -85,10 +95,13 @@
 
     <main class="shell">
       <nav class="tabs" aria-label="Application pages">
-        <button class="tab is-active" data-page="products">Products</button>
-        <button class="tab" data-page="booking-history">Booking history</button>
-        <button class="tab" data-page="issues">Issues</button>
-        <button class="tab hidden" data-page="manager">Manager</button>
+        <button class="tab is-active customer-tab" data-page="products">Products</button>
+        <button class="tab customer-tab" data-page="booking-history">Booking history</button>
+        <button class="tab customer-tab" data-page="issues">Issues</button>
+        <button class="tab hidden manager-nav-tab" data-manager-section="store-manager">Store manager</button>
+        <button class="tab hidden manager-nav-tab" data-manager-section="scooter-manager">Scooter manager</button>
+        <button class="tab hidden manager-nav-tab" data-manager-section="user-manager">User manager</button>
+        <button class="tab hidden manager-nav-tab" data-manager-section="issue-manager">Issue manager</button>
       </nav>
 
       <section class="page is-active" id="products-page">
@@ -107,7 +120,22 @@
             <div><strong id="summary-issues">1</strong><span>Open issues</span></div>
           </div>
         </div>
-        <div class="fleet" id="fleet-grid"></div>
+        <div class="grid grid--map">
+          <article class="card">
+            <div class="card__header">
+              <div>
+                <p class="card__eyebrow">Location Map</p>
+                <h2>Pickup store map</h2>
+              </div>
+              <p class="muted">Select a store on the map to view the scooters currently available for hire.</p>
+            </div>
+            <div class="map-card">
+              <div class="map-stage" id="scooter-map"></div>
+              <div class="map-legend" id="map-legend"></div>
+            </div>
+            <p class="feedback" id="map-feedback"></p>
+          </article>
+        </div>
       </section>
 
       <section class="page" id="book-page">
@@ -120,23 +148,19 @@
             <button type="button" class="button button--ghost" id="back-to-products-button">Back to products</button>
           </div>
           <form class="form" id="booking-form">
+            <div id="booking-scooter-details" class="stack"></div>
             <label>
-              Scooter
-              <select id="booking-scooter"></select>
+              Start time
+              <input type="datetime-local" id="booking-start-time">
             </label>
             <label>
-              Duration
-              <select id="booking-duration">
-                <option value="1">1 hour - GBP 4</option>
-                <option value="4">4 hours - GBP 12</option>
-                <option value="24">1 day - GBP 20</option>
-                <option value="168">1 week - GBP 60</option>
-              </select>
+              End time
+              <input type="datetime-local" id="booking-end-time">
             </label>
+            <div id="booking-estimate" class="stack"></div>
             <button type="submit" class="button button--primary">Confirm booking</button>
           </form>
           <p class="feedback" id="booking-feedback"></p>
-          <div id="booking-summary" class="stack"></div>
         </article>
       </section>
 
@@ -148,7 +172,7 @@
               <h2>Booking history</h2>
             </div>
           </div>
-          <div id="customer-booking-history" class="list"></div>
+          <div id="customer-booking-history" class="list booking-history-list"></div>
           <p class="feedback" id="booking-action-feedback"></p>
         </article>
       </section>
@@ -188,87 +212,118 @@
       </section>
 
       <section class="page" id="manager-page">
-        <div class="grid grid--two">
-          <article class="card">
-            <div class="card__header">
-              <div>
-                <p class="card__eyebrow">Dashboard</p>
-                <h2>Manager overview</h2>
-              </div>
-            </div>
-            <div class="summary-grid">
-              <div><strong id="manager-bookings">1</strong><span>Total bookings</span></div>
-              <div><strong id="manager-revenue">GBP 12</strong><span>Total revenue</span></div>
-              <div><strong id="manager-availability">80%</strong><span>Fleet availability</span></div>
-              <div><strong id="manager-issue-count">1</strong><span>Open issues</span></div>
-            </div>
-          </article>
+        <div class="manager-sections">
+          <section class="manager-section is-active" id="store-manager-section">
+            <div class="grid grid--two">
+              <article class="card">
+                <div class="card__header">
+                  <div>
+                    <p class="card__eyebrow">Dashboard</p>
+                    <h2>Store overview</h2>
+                  </div>
+                </div>
+                <div class="summary-grid">
+                  <div><strong id="manager-bookings">1</strong><span>Total bookings</span></div>
+                  <div><strong id="manager-revenue">GBP 12</strong><span>Total revenue</span></div>
+                  <div><strong id="manager-availability">80%</strong><span>Fleet availability</span></div>
+                  <div><strong id="manager-issue-count">1</strong><span>Open issues</span></div>
+                </div>
+              </article>
 
-          <article class="card">
-            <div class="card__header">
-              <div>
-                <p class="card__eyebrow">Pricing</p>
-                <h2>Price configuration</h2>
-              </div>
+              <article class="card">
+                <div class="card__header">
+                  <div>
+                    <p class="card__eyebrow">Store setup</p>
+                    <h2>Add store on map</h2>
+                  </div>
+                </div>
+                <div class="map-stage map-stage--route" id="manager-store-map"></div>
+                <form class="form" id="store-form">
+                  <div id="store-form-mode" class="feedback">Create a new store by clicking a location on the map.</div>
+                  <label>
+                    Store name
+                    <input type="text" id="store-name" placeholder="Central Plaza Store">
+                  </label>
+                  <label>
+                    Latitude
+                    <input type="number" step="0.000001" id="store-latitude" placeholder="52.953000">
+                  </label>
+                  <label>
+                    Longitude
+                    <input type="number" step="0.000001" id="store-longitude" placeholder="-1.150000">
+                  </label>
+                  <div class="form-actions">
+                    <button type="submit" class="button button--primary" id="store-submit-button">Create store</button>
+                    <button type="button" class="button button--ghost hidden" id="store-cancel-edit-button">Cancel edit</button>
+                    <button type="button" class="button button--danger hidden" id="store-delete-button">Delete store</button>
+                  </div>
+                </form>
+                <p class="feedback" id="store-feedback">Click the map to select the store location.</p>
+              </article>
             </div>
-            <form class="form" id="price-form">
-              <label>
-                1 hour price
-                <input type="number" min="1" id="price-1" placeholder="4">
-              </label>
-              <label>
-                4 hours price
-                <input type="number" min="1" id="price-4" placeholder="12">
-              </label>
-              <label>
-                1 day price
-                <input type="number" min="1" id="price-24" placeholder="20">
-              </label>
-              <label>
-                1 week price
-                <input type="number" min="1" id="price-168" placeholder="60">
-              </label>
-              <button type="submit" class="button button--primary">Save prices</button>
-            </form>
-            <p class="feedback" id="price-feedback"></p>
-          </article>
-        </div>
+          </section>
 
-        <div class="grid grid--two">
-          <article class="card">
-            <div class="card__header">
-              <div>
-                <p class="card__eyebrow">Users</p>
-                <h2>Registered users</h2>
+          <section class="manager-section" id="scooter-manager-section">
+            <article class="card">
+              <div class="card__header">
+                <div>
+                  <p class="card__eyebrow">Store fleet</p>
+                  <h2>Add scooters and update prices</h2>
+                </div>
               </div>
-            </div>
-            <div id="manager-user-list" class="list"></div>
-          </article>
+              <form class="form" id="manager-scooter-form">
+                <label>
+                  Store
+                  <select id="manager-store-select"></select>
+                </label>
+                <label>
+                  Hourly price
+                  <input type="number" min="1" id="manager-scooter-price" placeholder="5">
+                </label>
+                <label>
+                  Battery
+                  <input type="number" min="10" max="100" id="manager-scooter-battery" placeholder="80">
+                </label>
+                <button type="submit" class="button button--primary">Add scooter</button>
+              </form>
+              <p class="feedback" id="manager-scooter-feedback"></p>
+              <div id="manager-store-scooters" class="list"></div>
+            </article>
+          </section>
 
-          <article class="card">
-            <div class="card__header">
-              <div>
-                <p class="card__eyebrow">Bookings</p>
-                <h2>All records</h2>
+          <section class="manager-section" id="user-manager-section">
+            <article class="card">
+              <div class="card__header">
+                <div>
+                  <p class="card__eyebrow">Users</p>
+                  <h2>Registered users</h2>
+                </div>
               </div>
-            </div>
-            <div id="booking-history" class="list"></div>
-          </article>
+              <div id="manager-user-list" class="list"></div>
+            </article>
+          </section>
 
-          <article class="card">
-            <div class="card__header">
-              <div>
-                <p class="card__eyebrow">Operations</p>
-                <h2>Reported problems</h2>
+          <section class="manager-section" id="issue-manager-section">
+            <article class="card">
+              <div class="card__header">
+                <div>
+                  <p class="card__eyebrow">Operations</p>
+                  <h2>Reported problems</h2>
+                </div>
               </div>
-            </div>
-            <div id="manager-issue-list" class="list"></div>
-          </article>
+              <div id="manager-issue-list" class="list"></div>
+            </article>
+          </section>
         </div>
       </section>
     </main>
   </section>
 
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
   <script src="main.js"></script>
 </body>
 </html>
