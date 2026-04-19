@@ -302,6 +302,174 @@ class CityHopServerTests(unittest.TestCase):
         self.assertEqual(newest_issue["scooterId"], "SC-101")
         self.assertEqual(newest_issue["priority"], "High")
 
+    def test_nearby_store_generation_creates_new_stores_when_area_is_empty(self):
+        token = self.login_demo_customer()
+        status, payload = self.request(
+            "/api/stores/ensure-nearby",
+            method="POST",
+            token=token,
+            body={"latitude": 53.0200, "longitude": -1.0800},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["created"])
+        generated = [scooter for scooter in payload["state"]["scooters"] if scooter["location"].startswith("Auto Store")]
+        generated_store_names = {scooter["location"] for scooter in generated}
+        self.assertEqual(len(generated_store_names), 3)
+        self.assertTrue(all(3 <= scooter["hourlyPrice"] <= 8 for scooter in generated))
+
+    def test_manager_can_update_individual_scooter_hourly_prices(self):
+        token = self.login_demo_manager()
+        status, payload = self.request(
+            "/api/scooters/hourly-prices",
+            method="POST",
+            token=token,
+            body={"scooterPrices": {"SC-101": 7, "SC-102": 9}},
+        )
+
+        self.assertEqual(status, 200)
+        scooters = {scooter["id"]: scooter for scooter in payload["state"]["scooters"]}
+        self.assertEqual(scooters["SC-101"]["hourlyPrice"], 7)
+        self.assertEqual(scooters["SC-102"]["hourlyPrice"], 9)
+
+    def test_manager_can_create_store_and_add_scooter(self):
+        token = self.login_demo_manager()
+        create_status, create_payload = self.request(
+            "/api/stores",
+            method="POST",
+            token=token,
+            body={"name": "North Hub", "latitude": 52.9701, "longitude": -1.1402},
+        )
+
+        self.assertEqual(create_status, 200)
+        created_store = next(store for store in create_payload["state"]["stores"] if store["name"] == "North Hub")
+
+        scooter_status, scooter_payload = self.request(
+            "/api/stores/scooters",
+            method="POST",
+            token=token,
+            body={"storeId": created_store["id"], "hourlyPrice": 8, "battery": 84},
+        )
+
+        self.assertEqual(scooter_status, 200)
+        scooter = next(
+            scooter
+            for scooter in scooter_payload["state"]["scooters"]
+            if scooter["storeId"] == created_store["id"]
+        )
+        self.assertEqual(scooter["location"], "North Hub")
+        self.assertEqual(scooter["hourlyPrice"], 8)
+
+    def test_manager_can_update_existing_store(self):
+        token = self.login_demo_manager()
+        create_status, create_payload = self.request(
+            "/api/stores",
+            method="POST",
+            token=token,
+            body={"name": "South Hub", "latitude": 52.9401, "longitude": -1.1602},
+        )
+
+        self.assertEqual(create_status, 200)
+        created_store = next(store for store in create_payload["state"]["stores"] if store["name"] == "South Hub")
+
+        update_status, update_payload = self.request(
+            "/api/stores/update",
+            method="POST",
+            token=token,
+            body={
+                "storeId": created_store["id"],
+                "name": "South Hub Updated",
+                "latitude": 52.9412,
+                "longitude": -1.1613,
+            },
+        )
+
+        self.assertEqual(update_status, 200)
+        updated_store = next(store for store in update_payload["state"]["stores"] if store["id"] == created_store["id"])
+        self.assertEqual(updated_store["name"], "South Hub Updated")
+        self.assertAlmostEqual(updated_store["latitude"], 52.9412)
+        self.assertAlmostEqual(updated_store["longitude"], -1.1613)
+
+    def test_manager_can_delete_scooter(self):
+        token = self.login_demo_manager()
+        create_status, create_payload = self.request(
+            "/api/stores",
+            method="POST",
+            token=token,
+            body={"name": "Delete Scooter Hub", "latitude": 52.9601, "longitude": -1.1302},
+        )
+        self.assertEqual(create_status, 200)
+        created_store = next(store for store in create_payload["state"]["stores"] if store["name"] == "Delete Scooter Hub")
+
+        scooter_status, scooter_payload = self.request(
+            "/api/stores/scooters",
+            method="POST",
+            token=token,
+            body={"storeId": created_store["id"], "hourlyPrice": 6, "battery": 78},
+        )
+        self.assertEqual(scooter_status, 200)
+        created_scooter = next(
+            scooter
+            for scooter in scooter_payload["state"]["scooters"]
+            if scooter["storeId"] == created_store["id"]
+        )
+
+        delete_status, delete_payload = self.request(
+            "/api/scooters/delete",
+            method="POST",
+            token=token,
+            body={"scooterId": created_scooter["id"]},
+        )
+        self.assertEqual(delete_status, 200)
+        remaining_ids = {scooter["id"] for scooter in delete_payload["state"]["scooters"]}
+        self.assertNotIn(created_scooter["id"], remaining_ids)
+
+    def test_manager_can_delete_store(self):
+        token = self.login_demo_manager()
+        create_status, create_payload = self.request(
+            "/api/stores",
+            method="POST",
+            token=token,
+            body={"name": "Delete Store Hub", "latitude": 52.9671, "longitude": -1.1322},
+        )
+        self.assertEqual(create_status, 200)
+        created_store = next(store for store in create_payload["state"]["stores"] if store["name"] == "Delete Store Hub")
+
+        scooter_status, scooter_payload = self.request(
+            "/api/stores/scooters",
+            method="POST",
+            token=token,
+            body={"storeId": created_store["id"], "hourlyPrice": 7, "battery": 82},
+        )
+        self.assertEqual(scooter_status, 200)
+        created_scooter = next(
+            scooter
+            for scooter in scooter_payload["state"]["scooters"]
+            if scooter["storeId"] == created_store["id"]
+        )
+
+        delete_status, delete_payload = self.request(
+            "/api/stores/delete",
+            method="POST",
+            token=token,
+            body={"storeId": created_store["id"]},
+        )
+        self.assertEqual(delete_status, 200)
+        remaining_store_ids = {store["id"] for store in delete_payload["state"]["stores"]}
+        remaining_scooter_ids = {scooter["id"] for scooter in delete_payload["state"]["scooters"]}
+        self.assertNotIn(created_store["id"], remaining_store_ids)
+        self.assertNotIn(created_scooter["id"], remaining_scooter_ids)
+
+    def test_customer_can_view_generated_booking_route(self):
+        token = self.login_demo_customer()
+        status, payload = self.request("/api/bookings/route?bookingId=1", token=token)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["booking"]["scooterId"], "SC-103")
+        self.assertGreaterEqual(len(payload["route"]), 1)
+        self.assertIn("latitude", payload["route"][0])
+        self.assertIn("battery", payload["route"][0])
+
     def test_static_index_page_is_served(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         connection.request("GET", "/")
