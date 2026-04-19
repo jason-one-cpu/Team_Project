@@ -112,6 +112,12 @@ textarea {
   gap: 14px;
 }
 
+.form-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 label {
   display: grid;
   gap: 8px;
@@ -259,6 +265,14 @@ textarea {
   display: block;
 }
 
+.manager-section {
+  display: none;
+}
+
+.manager-section.is-active {
+  display: block;
+}
+
 .hero-panel {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
@@ -286,6 +300,10 @@ textarea {
 
 .grid--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.grid--map {
+  grid-template-columns: 1fr;
 }
 
 .card {
@@ -341,6 +359,216 @@ textarea {
   gap: 16px;
 }
 
+.map-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.7fr);
+  gap: 20px;
+}
+
+.map-stage {
+  position: relative;
+  min-height: 520px;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255,255,255,0.86), rgba(242, 236, 227, 0.96));
+}
+
+.map-stage--route {
+  min-height: 360px;
+}
+
+.booking-history-list {
+  max-height: 640px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.booking-history-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.booking-history-list::-webkit-scrollbar-thumb {
+  background: rgba(14, 118, 110, 0.28);
+  border-radius: 999px;
+}
+
+.booking-history-list > .booking-entry {
+  display: grid;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.booking-entry__summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.booking-entry__route {
+  display: grid;
+  gap: 12px;
+}
+
+.booking-entry__route .feedback {
+  min-height: 0;
+}
+
+.map-stage .leaflet-control-attribution {
+  font-size: 0.68rem;
+}
+
+.map-fallback {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 380px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.map-pin {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: 0 10px 24px rgba(32, 41, 52, 0.18);
+  cursor: pointer;
+  position: relative;
+}
+
+.map-pin span {
+  position: absolute;
+  top: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  border: 1px solid rgba(216, 204, 186, 0.9);
+}
+
+.map-pin::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%) rotate(45deg);
+  border-radius: 2px;
+}
+
+.map-pin-wrapper {
+  background: transparent;
+  border: 0;
+}
+
+.user-location-tooltip {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(216, 204, 186, 0.9);
+  color: var(--text);
+  border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(32, 41, 52, 0.14);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+
+.user-location-tooltip::before {
+  display: none;
+}
+
+.map-pin--available,
+.map-pin--available::after,
+.map-legend__dot--available {
+  background: var(--accent);
+}
+
+.map-pin--booked,
+.map-pin--booked::after,
+.map-legend__dot--booked {
+  background: var(--danger);
+}
+
+.map-legend {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.map-legend__list {
+  display: grid;
+  gap: 12px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.map-legend__list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.map-legend__list::-webkit-scrollbar-thumb {
+  background: rgba(14, 118, 110, 0.28);
+  border-radius: 999px;
+}
+
+.map-legend__header,
+.map-legend__empty {
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid var(--line);
+}
+
+.map-legend__header h3,
+.map-legend__empty strong {
+  margin: 0;
+}
+
+.map-legend__header .muted,
+.map-legend__empty small {
+  display: block;
+  margin-top: 6px;
+}
+
+.map-legend__item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid var(--line);
+}
+
+.map-legend__item strong,
+.map-legend__item small {
+  display: block;
+}
+
+.map-legend__item .button {
+  margin-left: auto;
+}
+
+.map-legend__item small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.map-legend__dot {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  border-radius: 50%;
+}
+
 .fleet__item {
   padding: 18px;
   border-radius: 20px;
@@ -376,7 +604,8 @@ textarea {
 @media (max-width: 920px) {
   .auth-layout,
   .hero-panel,
-  .grid--two {
+  .grid--two,
+  .map-card {
     grid-template-columns: 1fr;
   }
 

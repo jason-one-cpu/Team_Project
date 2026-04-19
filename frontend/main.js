@@ -4,6 +4,8 @@ const uiState = {
   currentUser: null,
   sessionToken: localStorage.getItem("cityhopSessionToken") || "",
   currentPage: "products",
+  currentManagerSection: "store-manager",
+  selectedManagerStoreId: null,
   selectedScooterId: "",
   data: {
     users: [],
@@ -32,14 +34,84 @@ const registerForm = document.getElementById("register-form");
 const loginForm = document.getElementById("login-form");
 const authModeButtons = document.querySelectorAll("[data-auth-mode]");
 const roleButtons = document.querySelectorAll("[data-role]");
-const tabs = document.querySelectorAll(".tab");
+const tabs = document.querySelectorAll(".tab[data-page]");
+const managerNavTabs = document.querySelectorAll(".manager-nav-tab");
 const pages = document.querySelectorAll(".page");
-const managerTab = document.querySelector('[data-page="manager"]');
+const customerTabs = document.querySelectorAll(".customer-tab");
+const managerSections = document.querySelectorAll(".manager-section");
 const bookingForm = document.getElementById("booking-form");
 const issueForm = document.getElementById("issue-form");
-const priceForm = document.getElementById("price-form");
+const storeForm = document.getElementById("store-form");
+const managerScooterForm = document.getElementById("manager-scooter-form");
 const logoutButton = document.getElementById("logout-button");
 const backToProductsButton = document.getElementById("back-to-products-button");
+let scooterMap = null;
+let scooterMarkers = [];
+let userLocationMarker = null;
+let routeMap = null;
+let routePolyline = null;
+let routeMarkers = [];
+let managerStoreMap = null;
+let managerStoreMarkers = [];
+let pendingStoreMarker = null;
+let expandedRouteBookingId = null;
+let hasRequestedUserLocation = false;
+let selectedStore = "City Square";
+const cityCentreView = { lat: 52.9530, lng: -1.1500, zoom: 17 };
+const defaultUserLocation = { lat: 52.9518, lng: -1.1538, label: "Default customer location" };
+let lastStoreCheckKey = "";
+let currentMapCenter = { lat: defaultUserLocation.lat, lng: defaultUserLocation.lng, zoom: 17 };
+let currentUserCoords = { lat: defaultUserLocation.lat, lng: defaultUserLocation.lng };
+let hasInitializedNearestStore = false;
+let selectedStoreWasManual = false;
+
+function populateStoreForm(store) {
+  const modeLabel = document.getElementById("store-form-mode");
+  const submitButton = document.getElementById("store-submit-button");
+  const cancelButton = document.getElementById("store-cancel-edit-button");
+  const deleteButton = document.getElementById("store-delete-button");
+  document.getElementById("store-name").value = store.name;
+  document.getElementById("store-latitude").value = Number(store.latitude).toFixed(6);
+  document.getElementById("store-longitude").value = Number(store.longitude).toFixed(6);
+  uiState.selectedManagerStoreId = store.id;
+  if (modeLabel) {
+    modeLabel.textContent = `Editing ${store.name}. Update the name or location, then save.`;
+  }
+  if (submitButton) {
+    submitButton.textContent = "Save store";
+  }
+  if (cancelButton) {
+    cancelButton.classList.remove("hidden");
+  }
+  if (deleteButton) {
+    deleteButton.classList.remove("hidden");
+  }
+}
+
+function resetStoreForm() {
+  const modeLabel = document.getElementById("store-form-mode");
+  const submitButton = document.getElementById("store-submit-button");
+  const cancelButton = document.getElementById("store-cancel-edit-button");
+  const deleteButton = document.getElementById("store-delete-button");
+  uiState.selectedManagerStoreId = null;
+  storeForm?.reset();
+  if (pendingStoreMarker) {
+    pendingStoreMarker.remove();
+    pendingStoreMarker = null;
+  }
+  if (modeLabel) {
+    modeLabel.textContent = "Create a new store by clicking a location on the map.";
+  }
+  if (submitButton) {
+    submitButton.textContent = "Create store";
+  }
+  if (cancelButton) {
+    cancelButton.classList.add("hidden");
+  }
+  if (deleteButton) {
+    deleteButton.classList.add("hidden");
+  }
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -57,7 +129,7 @@ async function api(path, options = {}) {
   if (contentType.includes("application/json")) {
     data = raw ? JSON.parse(raw) : {};
   } else {
-    throw new Error("Backend API is not running. Please start the app with `python server.py` and open http://127.0.0.1:8000.");
+    throw new Error("Backend API is not running. Please start the app with `python backend/server.py` and open http://127.0.0.1:8000.");
   }
 
   if (!response.ok) {
@@ -73,17 +145,21 @@ async function loadState() {
 }
 
 function setAuthMode(mode) {
-  uiState.authMode = mode;
+  const normalizedMode = uiState.role === "manager" ? "login" : mode;
+  uiState.authMode = normalizedMode;
   authModeButtons.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.authMode === mode);
+    button.classList.toggle("is-active", button.dataset.authMode === normalizedMode);
+    button.classList.toggle("hidden", uiState.role === "manager" && button.dataset.authMode === "register");
   });
-  registerForm.classList.toggle("hidden", mode !== "register");
-  loginForm.classList.toggle("hidden", mode !== "login");
-  authTitle.textContent = mode === "register" ? "Create account" : "Sign in";
-  authSubtitle.textContent = mode === "register"
+  registerForm.classList.toggle("hidden", normalizedMode !== "register");
+  loginForm.classList.toggle("hidden", normalizedMode !== "login");
+  authTitle.textContent = normalizedMode === "register" ? "Create account" : "Sign in";
+  authSubtitle.textContent = normalizedMode === "register"
     ? `Register a new ${uiState.role} account to enter the platform.`
     : `Login as a ${uiState.role} to continue into the platform.`;
-  authFeedback.textContent = "Accounts are now handled through the SQLite-backed backend.";
+  authFeedback.textContent = uiState.role === "manager"
+    ? "Manager access is login-only. Use the default admin / admin account."
+    : "Accounts are now handled through the SQLite-backed backend.";
 }
 
 function setRole(role) {
@@ -91,9 +167,9 @@ function setRole(role) {
   roleButtons.forEach((button) => {
     button.classList.toggle("is-active", button.dataset.role === role);
   });
-  authRoleLabel.textContent = "Customer Access";
+  authRoleLabel.textContent = role === "manager" ? "Manager Access" : "Customer Access";
   document.getElementById("login-button").textContent = "Login";
-  setAuthMode(uiState.authMode);
+  setAuthMode(role === "manager" ? "login" : uiState.authMode);
 }
 
 function setPage(pageId) {
@@ -104,14 +180,34 @@ function setPage(pageId) {
   pages.forEach((page) => {
     page.classList.toggle("is-active", page.id === `${pageId}-page`);
   });
+
+  if (pageId === "products" && scooterMap) {
+    window.setTimeout(() => {
+      scooterMap.invalidateSize();
+      scooterMap.setView([currentMapCenter.lat, currentMapCenter.lng], currentMapCenter.zoom || 17);
+      requestUserLocation();
+    }, 80);
+  }
+}
+
+function setManagerSection(sectionId) {
+  uiState.currentManagerSection = sectionId;
+  managerNavTabs.forEach((tab) => {
+    tab.classList.toggle("is-active", tab.dataset.managerSection === sectionId);
+  });
+  managerSections.forEach((section) => {
+    section.classList.toggle("is-active", section.id === `${sectionId}-section`);
+  });
+
+  if (sectionId === "store-manager" && managerStoreMap) {
+    window.setTimeout(() => managerStoreMap.invalidateSize(), 80);
+  }
 }
 
 function setBookingSelection(scooterId) {
   uiState.selectedScooterId = scooterId;
-  const bookingSelect = document.getElementById("booking-scooter");
-  if (bookingSelect && scooterId) {
-    bookingSelect.value = scooterId;
-  }
+  renderBookingFormDetails();
+  renderBookingEstimate();
 }
 
 function enterApp(user) {
@@ -121,8 +217,14 @@ function enterApp(user) {
   document.getElementById("welcome-text").textContent = `Welcome, ${user.name}`;
   document.getElementById("welcome-role").textContent = user.role === "manager" ? "Manager" : "Customer";
   document.getElementById("app-title").textContent = user.role === "manager" ? "Manager Portal" : "Customer Portal";
-  managerTab.classList.toggle("hidden", user.role !== "manager");
-  setPage(user.role === "manager" ? "manager" : "products");
+  customerTabs.forEach((tab) => tab.classList.toggle("hidden", user.role === "manager"));
+  managerNavTabs.forEach((tab) => tab.classList.toggle("hidden", user.role !== "manager"));
+  if (user.role === "manager") {
+    setPage("manager");
+    setManagerSection(uiState.currentManagerSection || "store-manager");
+  } else {
+    setPage("products");
+  }
   renderAll();
 }
 
@@ -142,44 +244,331 @@ async function logout() {
 }
 
 function renderScooterSelects() {
-  const bookingSelect = document.getElementById("booking-scooter");
   const issueSelect = document.getElementById("issue-scooter");
-  const available = uiState.data.scooters.filter((scooter) => scooter.available);
-
-  bookingSelect.innerHTML = available
-    .map(
-      (scooter) =>
-        `<option value="${scooter.id}">${scooter.id} - ${scooter.location} (${scooter.battery}% battery)</option>`
-    )
-    .join("");
-
-  if (uiState.selectedScooterId && available.some((scooter) => scooter.id === uiState.selectedScooterId)) {
-    bookingSelect.value = uiState.selectedScooterId;
-  }
 
   issueSelect.innerHTML = uiState.data.scooters
     .map((scooter) => `<option value="${scooter.id}">${scooter.id} - ${scooter.location}</option>`)
     .join("");
 }
 
-function renderFleet() {
-  document.getElementById("fleet-grid").innerHTML = uiState.data.scooters
-    .map(
-      (scooter) => `
-        <article class="fleet__item">
-          <h3>${scooter.id}</h3>
-          <p><strong>Location:</strong> ${scooter.location}</p>
-          <p><strong>Battery:</strong> ${scooter.battery}%</p>
-          <span class="status ${scooter.available ? "status--available" : "status--booked"}">
-            ${scooter.available ? "Available" : "Booked"}
-          </span>
-          ${scooter.available ? `<div class="fleet__actions"><button type="button" class="button button--primary book-now-button" data-scooter-id="${scooter.id}">Book</button></div>` : ""}
-        </article>
-      `
-    )
-    .join("");
+function getSelectedScooter() {
+  return uiState.data.scooters.find((scooter) => scooter.id === uiState.selectedScooterId) || null;
+}
 
-  document.querySelectorAll(".book-now-button").forEach((button) => {
+function formatDateTimeLocalValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function calculateBookingEstimate() {
+  const scooter = getSelectedScooter();
+  const startInput = document.getElementById("booking-start-time");
+  const endInput = document.getElementById("booking-end-time");
+
+  if (!scooter || !startInput || !endInput || !startInput.value || !endInput.value) {
+    return null;
+  }
+
+  const start = new Date(startInput.value);
+  const end = new Date(endInput.value);
+  const milliseconds = end - start;
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || milliseconds <= 0) {
+    return { valid: false };
+  }
+
+  const durationHours = Math.max(1, Math.ceil(milliseconds / 3600000));
+  return {
+    valid: true,
+    durationHours,
+    estimatedCost: durationHours * scooter.hourlyPrice
+  };
+}
+
+function syncBookingTimeDefaults() {
+  const startInput = document.getElementById("booking-start-time");
+  const endInput = document.getElementById("booking-end-time");
+  if (!startInput || !endInput) {
+    return;
+  }
+
+  if (!startInput.value) {
+    const start = new Date();
+    start.setMinutes(0, 0, 0);
+    start.setHours(start.getHours() + 1);
+    startInput.value = formatDateTimeLocalValue(start);
+  }
+
+  if (!endInput.value) {
+    const end = new Date(startInput.value);
+    end.setHours(end.getHours() + 1);
+    endInput.value = formatDateTimeLocalValue(end);
+  }
+
+  renderBookingEstimate();
+}
+
+function renderBookingFormDetails() {
+  const details = document.getElementById("booking-scooter-details");
+  const scooter = getSelectedScooter();
+  if (!details) {
+    return;
+  }
+
+  if (!scooter) {
+    details.innerHTML = `
+      <div>
+        <span></span>
+        <strong></strong>
+      </div>
+    `;
+    return;
+  }
+
+  details.innerHTML = `
+    <div><span>${scooter.id}</span><strong>${scooter.location} - GBP ${scooter.hourlyPrice}/hour</strong></div>
+    <div><span>Pickup store</span><strong>${scooter.location}</strong></div>
+    <div><span>Battery</span><strong>${scooter.battery}%</strong></div>
+    <div><span>Hourly price</span><strong>GBP ${scooter.hourlyPrice}/hour</strong></div>
+  `;
+
+  syncBookingTimeDefaults();
+}
+
+function renderBookingEstimate() {
+  const estimate = document.getElementById("booking-estimate");
+  if (!estimate) {
+    return;
+  }
+
+  const scooter = getSelectedScooter();
+  if (!scooter) {
+    estimate.innerHTML = `
+      <div><span>Estimated duration</span><strong>Select a scooter first</strong></div>
+      <div><span>Estimated cost</span><strong>-</strong></div>
+    `;
+    return;
+  }
+
+  const result = calculateBookingEstimate();
+  if (!result) {
+    estimate.innerHTML = `
+      <div><span>Estimated duration</span><strong>Choose start and end times</strong></div>
+      <div><span>Estimated cost</span><strong>-</strong></div>
+    `;
+    return;
+  }
+
+  if (!result.valid) {
+    estimate.innerHTML = `
+      <div><span>Estimated duration</span><strong>End time must be later than start time</strong></div>
+      <div><span>Estimated cost</span><strong>-</strong></div>
+    `;
+    return;
+  }
+
+  estimate.innerHTML = `
+    <div><span>Estimated duration</span><strong>${result.durationHours} hour(s)</strong></div>
+    <div><span>Estimated cost</span><strong>GBP ${result.estimatedCost}</strong></div>
+  `;
+}
+
+function getStoreSummaries() {
+  const grouped = new Map();
+  uiState.data.scooters.forEach((scooter) => {
+    if (!grouped.has(scooter.location)) {
+      grouped.set(scooter.location, []);
+    }
+    grouped.get(scooter.location).push(scooter);
+  });
+
+  return Array.from(grouped.entries()).map(([storeName, scootersAtStore]) => {
+    const availableScooters = scootersAtStore.filter((scooter) => scooter.available);
+    const point = scootersAtStore[0]
+      ? { lat: scootersAtStore[0].latitude, lng: scootersAtStore[0].longitude }
+      : { lat: cityCentreView.lat, lng: cityCentreView.lng };
+    return {
+      storeName,
+      point,
+      scootersAtStore,
+      availableScooters
+    };
+  });
+}
+
+function setSelectedStore(storeName) {
+  selectedStore = storeName;
+  selectedStoreWasManual = true;
+  renderStoreLegend();
+}
+
+function distanceBetweenPoints(lat1, lng1, lat2, lng2) {
+  const earthRadiusKm = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function selectNearestStore(lat, lng, force = false) {
+  const stores = getStoreSummaries();
+  if (!stores.length) {
+    return;
+  }
+  if (selectedStoreWasManual && !force) {
+    return;
+  }
+
+  const nearest = stores.reduce((closest, store) => {
+    const distance = distanceBetweenPoints(lat, lng, store.point.lat, store.point.lng);
+    if (!closest || distance < closest.distance) {
+      return { storeName: store.storeName, distance };
+    }
+    return closest;
+  }, null);
+
+  if (nearest) {
+    selectedStore = nearest.storeName;
+    if (!selectedStoreWasManual) {
+      hasInitializedNearestStore = true;
+    }
+  }
+}
+
+function renderScooterMap() {
+  const map = document.getElementById("scooter-map");
+  if (!map) {
+    return;
+  }
+
+  if (!window.L) {
+    map.innerHTML = `
+      <div class="map-fallback">
+        <strong>Map unavailable</strong>
+        <span>Leaflet or the online map tiles could not be loaded.</span>
+      </div>
+    `;
+    return;
+  }
+
+  if (!scooterMap) {
+    scooterMap = window.L.map(map, {
+      zoomControl: true,
+      attributionControl: true
+    }).setView([cityCentreView.lat, cityCentreView.lng], cityCentreView.zoom);
+
+    window.L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(scooterMap);
+  }
+
+  scooterMarkers.forEach((marker) => marker.remove());
+  scooterMarkers = [];
+
+  getStoreSummaries().forEach((store) => {
+    const point = store.point || { lat: 52.9530, lng: -1.1500 };
+    const markerHtml = `
+      <div class="map-pin ${store.availableScooters.length > 0 ? "map-pin--available" : "map-pin--booked"}">
+        <span>${store.storeName}</span>
+      </div>
+    `;
+
+    const marker = window.L.marker([point.lat, point.lng], {
+      icon: window.L.divIcon({
+        className: "map-pin-wrapper",
+        html: markerHtml,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -10]
+      })
+    });
+
+    marker.bindPopup(`
+      <strong>${store.storeName}</strong><br>
+      ${store.availableScooters.length} scooter(s) available<br>
+      ${store.scootersAtStore.length} scooter(s) in total
+    `);
+
+    marker.on("click", () => {
+      setSelectedStore(store.storeName);
+    });
+
+    marker.addTo(scooterMap);
+    scooterMarkers.push(marker);
+  });
+
+  window.setTimeout(() => {
+    scooterMap.invalidateSize();
+  }, 80);
+
+  if (!hasInitializedNearestStore && currentUserCoords) {
+    selectNearestStore(currentUserCoords.lat, currentUserCoords.lng, true);
+  }
+
+  renderStoreLegend();
+}
+
+function renderStoreLegend() {
+  const legend = document.getElementById("map-legend");
+  if (!legend) {
+    return;
+  }
+
+  const stores = getStoreSummaries();
+  if (!stores.length) {
+    legend.innerHTML = `
+      <div class="map-legend__empty">
+        <strong>No stores available</strong>
+        <small>The fleet has not been assigned to pickup stores yet.</small>
+      </div>
+    `;
+    return;
+  }
+
+  const activeStore = stores.find((store) => store.storeName === selectedStore) || stores[0];
+  selectedStore = activeStore.storeName;
+
+  const availableList = activeStore.availableScooters.length
+    ? activeStore.availableScooters
+        .map(
+          (scooter) => `
+            <div class="map-legend__item">
+              <span class="map-legend__dot map-legend__dot--available"></span>
+              <div>
+                <strong>${scooter.id}</strong>
+                <small>Battery ${scooter.battery}% - GBP ${scooter.hourlyPrice}/hour</small>
+              </div>
+              <button type="button" class="button button--primary store-book-button" data-scooter-id="${scooter.id}">Book</button>
+            </div>
+          `
+        )
+        .join("")
+    : `
+      <div class="map-legend__empty">
+        <strong>No scooters available</strong>
+        <small>All scooters at ${activeStore.storeName} are currently booked.</small>
+      </div>
+    `;
+
+  legend.innerHTML = `
+    <div class="map-legend__header">
+      <p class="card__eyebrow">Selected Store</p>
+      <h3>${activeStore.storeName}</h3>
+      <p class="muted">${activeStore.availableScooters.length} available out of ${activeStore.scootersAtStore.length} scooter(s).</p>
+    </div>
+    <div class="map-legend__list">
+      ${availableList}
+    </div>
+  `;
+
+  document.querySelectorAll(".store-book-button").forEach((button) => {
     button.addEventListener("click", () => {
       setBookingSelection(button.dataset.scooterId);
       setPage("book");
@@ -187,8 +576,115 @@ function renderFleet() {
   });
 }
 
+function showUserLocation(lat, lng, message = "Your current location has been added to the map.") {
+  if (!window.L || !scooterMap) {
+    return;
+  }
+
+  currentUserCoords = { lat, lng };
+  if (userLocationMarker) {
+    userLocationMarker.remove();
+  }
+
+  userLocationMarker = window.L.circleMarker([lat, lng], {
+    radius: 10,
+    color: "#ffffff",
+    weight: 3,
+    fillColor: "#1d4ed8",
+    fillOpacity: 1
+  });
+
+  userLocationMarker.bindPopup("<strong>You are here</strong>");
+  userLocationMarker.bindTooltip("You are here", {
+    permanent: true,
+    direction: "top",
+    offset: [0, -12],
+    className: "user-location-tooltip"
+  });
+  userLocationMarker.addTo(scooterMap);
+  currentMapCenter = { lat, lng, zoom: 17 };
+  scooterMap.setView([lat, lng], 17);
+  if (!selectedStoreWasManual) {
+    selectNearestStore(lat, lng, true);
+  }
+  renderStoreLegend();
+  document.getElementById("map-feedback").textContent = message;
+}
+
+function showDefaultUserLocation(message = "Using the default customer location until live geolocation is available.") {
+  showUserLocation(defaultUserLocation.lat, defaultUserLocation.lng, message);
+}
+
+async function ensureNearbyStores(lat, lng) {
+  const locationKey = `${lat.toFixed(3)},${lng.toFixed(3)}`;
+  if (lastStoreCheckKey === locationKey) {
+    return;
+  }
+  lastStoreCheckKey = locationKey;
+
+  try {
+    const result = await api("/api/stores/ensure-nearby", {
+      method: "POST",
+      body: JSON.stringify({ latitude: lat, longitude: lng })
+    });
+    uiState.data = result.state;
+    renderAll();
+  } catch (error) {
+    document.getElementById("map-feedback").textContent = error.message;
+  }
+}
+
+function requestUserLocation() {
+  if (hasRequestedUserLocation) {
+    return;
+  }
+  hasRequestedUserLocation = true;
+
+  if (!navigator.geolocation) {
+    showDefaultUserLocation("Geolocation is not supported by this browser, so the default customer location is shown.");
+    ensureNearbyStores(defaultUserLocation.lat, defaultUserLocation.lng);
+    return;
+  }
+
+  showDefaultUserLocation("Requesting your live location. The default customer location is shown for now.");
+  ensureNearbyStores(defaultUserLocation.lat, defaultUserLocation.lng);
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      showUserLocation(position.coords.latitude, position.coords.longitude);
+      await ensureNearbyStores(position.coords.latitude, position.coords.longitude);
+    },
+    async (error) => {
+      if (error.code === error.PERMISSION_DENIED) {
+        showDefaultUserLocation("Location permission was denied, so the default customer location is shown.");
+        await ensureNearbyStores(defaultUserLocation.lat, defaultUserLocation.lng);
+        return;
+      }
+      if (error.code === error.POSITION_UNAVAILABLE) {
+        showDefaultUserLocation("Your live location is unavailable, so the default customer location is shown.");
+        await ensureNearbyStores(defaultUserLocation.lat, defaultUserLocation.lng);
+        return;
+      }
+      if (error.code === error.TIMEOUT) {
+        showDefaultUserLocation("The location request timed out, so the default customer location is shown.");
+        await ensureNearbyStores(defaultUserLocation.lat, defaultUserLocation.lng);
+        return;
+      }
+      showDefaultUserLocation("Could not retrieve your live location, so the default customer location is shown.");
+      await ensureNearbyStores(defaultUserLocation.lat, defaultUserLocation.lng);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
+    }
+  );
+}
+
 function renderBookingSummary() {
   const summary = document.getElementById("booking-summary");
+  if (!summary) {
+    return;
+  }
   const booking = [...uiState.data.bookings].reverse().find((item) => item.status === "Active") || uiState.data.bookings[uiState.data.bookings.length - 1];
 
   if (!booking) {
@@ -199,6 +695,8 @@ function renderBookingSummary() {
   summary.innerHTML = `
     <div><span>Customer</span><strong>${booking.customer}</strong></div>
     <div><span>Scooter</span><strong>${booking.scooterId}</strong></div>
+    <div><span>Start time</span><strong>${booking.startTime || "Not recorded"}</strong></div>
+    <div><span>End time</span><strong>${booking.endTime || "Not recorded"}</strong></div>
     <div><span>Duration</span><strong>${booking.durationHours} hours</strong></div>
     <div><span>Cost</span><strong>GBP ${booking.price}</strong></div>
     <div><span>Status</span><strong>${booking.status}</strong></div>
@@ -206,36 +704,176 @@ function renderBookingSummary() {
 }
 
 function renderPriceConfiguration() {
-  const priceMap = uiState.data.priceMap || {};
-  const ids = ["1", "4", "24", "168"];
-  ids.forEach((duration) => {
-    const input = document.getElementById(`price-${duration}`);
-    if (input) {
-      input.value = priceMap[duration] ?? "";
+}
+
+function renderManagerStoreOptions() {
+  const select = document.getElementById("manager-store-select");
+  if (!select) {
+    return;
+  }
+
+  select.innerHTML = uiState.data.stores
+    .map((store) => `<option value="${store.id}">${store.name} (${store.availableCount}/${store.scooterCount} available)</option>`)
+    .join("");
+  if (uiState.data.stores.length) {
+    if (!select.value) {
+      select.value = String(uiState.data.stores[0].id);
     }
+    const selectedStoreId = Number(select.value);
+    if (!uiState.data.stores.some((store) => store.id === selectedStoreId)) {
+      select.value = String(uiState.data.stores[0].id);
+    }
+  }
+}
+
+function renderManagerStoreInventory() {
+  const container = document.getElementById("manager-store-scooters");
+  if (!container) {
+    return;
+  }
+
+  const selectedStoreId = Number(document.getElementById("manager-store-select")?.value || 0);
+  const store = uiState.data.stores.find((item) => item.id === selectedStoreId) || uiState.data.stores[0];
+  if (!store) {
+    container.innerHTML = "<div><span>No stores yet</span><strong>Create the first store on the map.</strong></div>";
+    return;
+  }
+
+  const scooters = uiState.data.scooters.filter((scooter) => scooter.storeId === store.id);
+  container.innerHTML = scooters
+    .map(
+      (scooter) => `
+        <div>
+          <span>${scooter.id} / ${scooter.battery}% battery / ${scooter.available ? "Available" : "Booked"}</span>
+          <div class="fleet__actions">
+            <input type="number" min="1" value="${scooter.hourlyPrice}" class="manager-price-input" data-scooter-id="${scooter.id}">
+            <button type="button" class="button button--ghost manager-save-price-button" data-scooter-id="${scooter.id}">Save price</button>
+            <button type="button" class="button button--danger manager-delete-scooter-button" data-scooter-id="${scooter.id}">Delete</button>
+          </div>
+        </div>
+      `
+    )
+    .join("") || "<div><span>No scooters in this store</span><strong>Add one below.</strong></div>";
+
+  document.querySelectorAll(".manager-save-price-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const input = document.querySelector(`.manager-price-input[data-scooter-id="${button.dataset.scooterId}"]`);
+      try {
+        const result = await api("/api/scooters/hourly-prices", {
+          method: "POST",
+          body: JSON.stringify({ scooterPrices: { [button.dataset.scooterId]: Number(input.value) } })
+        });
+        uiState.data = result.state;
+        document.getElementById("manager-scooter-feedback").textContent = result.message;
+        renderAll();
+      } catch (error) {
+        document.getElementById("manager-scooter-feedback").textContent = error.message;
+      }
+    });
   });
 
-  const durationSelect = document.getElementById("booking-duration");
-  durationSelect.innerHTML = [
-    { value: "1", label: "1 hour" },
-    { value: "4", label: "4 hours" },
-    { value: "24", label: "1 day" },
-    { value: "168", label: "1 week" }
-  ]
-    .map((option) => `<option value="${option.value}">${option.label} - GBP ${priceMap[option.value] ?? "-"}</option>`)
-    .join("");
+  document.querySelectorAll(".manager-delete-scooter-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        const result = await api("/api/scooters/delete", {
+          method: "POST",
+          body: JSON.stringify({ scooterId: button.dataset.scooterId })
+        });
+        uiState.data = result.state;
+        document.getElementById("manager-scooter-feedback").textContent = result.message;
+        renderAll();
+      } catch (error) {
+        document.getElementById("manager-scooter-feedback").textContent = error.message;
+      }
+    });
+  });
+}
+
+function renderManagerStoreMap() {
+  const mapElement = document.getElementById("manager-store-map");
+  if (!mapElement || !window.L || uiState.currentUser?.role !== "manager") {
+    return;
+  }
+
+  if (!managerStoreMap) {
+    managerStoreMap = window.L.map(mapElement, {
+      zoomControl: true,
+      attributionControl: true
+    }).setView([cityCentreView.lat, cityCentreView.lng], 14);
+
+    window.L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(managerStoreMap);
+
+    managerStoreMap.on("click", (event) => {
+      const { lat, lng } = event.latlng;
+      uiState.selectedManagerStoreId = null;
+      document.getElementById("store-latitude").value = lat.toFixed(6);
+      document.getElementById("store-longitude").value = lng.toFixed(6);
+      document.getElementById("store-name").focus();
+      document.getElementById("store-form-mode").textContent = "Creating a new store at the selected location.";
+      document.getElementById("store-submit-button").textContent = "Create store";
+      document.getElementById("store-cancel-edit-button").classList.add("hidden");
+      document.getElementById("store-delete-button").classList.add("hidden");
+
+      if (pendingStoreMarker) {
+        pendingStoreMarker.remove();
+      }
+      pendingStoreMarker = window.L.marker([lat, lng]).addTo(managerStoreMap);
+      document.getElementById("store-feedback").textContent = "Store location selected on the map.";
+    });
+  }
+
+  managerStoreMarkers.forEach((marker) => marker.remove());
+  managerStoreMarkers = [];
+
+  uiState.data.stores.forEach((store) => {
+    const marker = window.L.marker([store.latitude, store.longitude]).addTo(managerStoreMap);
+    marker.bindPopup(`
+      <strong>${store.name}</strong><br>
+      ${store.availableCount} available / ${store.scooterCount} total
+    `);
+    marker.on("click", () => {
+      populateStoreForm(store);
+      const storeSelect = document.getElementById("manager-store-select");
+      if (storeSelect) {
+        storeSelect.value = String(store.id);
+      }
+      renderManagerStoreInventory();
+      document.getElementById("store-feedback").textContent = `Loaded ${store.name}. You can now edit and save it.`;
+    });
+    managerStoreMarkers.push(marker);
+  });
+
+  window.setTimeout(() => managerStoreMap.invalidateSize(), 80);
 }
 
 function renderBookingHistory() {
-  const customerContent = uiState.data.bookings
+  const customerBookings = uiState.currentUser
+    ? uiState.data.bookings.filter((booking) => booking.customer === uiState.currentUser.name)
+    : [];
+
+  const customerContent = customerBookings
     .slice()
     .reverse()
     .map(
       (booking) => `
-          <div>
-            <span>${booking.customer} / ${booking.scooterId}</span>
-            <strong>${booking.durationHours}h / GBP ${booking.price} / ${booking.status}</strong>
-            ${booking.status === "Active" ? `<button type="button" class="button button--ghost history-end-button" data-booking-id="${booking.id}">End</button>` : ""}
+          <div class="booking-entry ${expandedRouteBookingId === booking.id ? "booking-entry--expanded" : ""}">
+            <div class="booking-entry__summary">
+              <span>${booking.customer} / ${booking.scooterId}</span>
+              <strong>${booking.startTime || "-"} to ${booking.endTime || "-"} / GBP ${booking.price} / ${booking.status}</strong>
+              <div class="fleet__actions">
+                <button type="button" class="button button--ghost view-route-button" data-booking-id="${booking.id}">${expandedRouteBookingId === booking.id ? "Hide route" : "View route"}</button>
+                ${booking.status === "Active" ? `<button type="button" class="button button--ghost history-end-button" data-booking-id="${booking.id}">End</button>` : ""}
+              </div>
+            </div>
+            ${expandedRouteBookingId === booking.id ? `
+              <div class="booking-entry__route">
+                <div class="map-stage map-stage--route" id="booking-route-map-${booking.id}"></div>
+                <p class="feedback" id="route-feedback-${booking.id}">Loading route...</p>
+              </div>
+            ` : ""}
           </div>
         `
     )
@@ -248,15 +886,21 @@ function renderBookingHistory() {
       (booking) => `
           <div>
             <span>${booking.customer} / ${booking.scooterId}</span>
-            <strong>${booking.durationHours}h / GBP ${booking.price} / ${booking.status}</strong>
-            ${booking.status === "Active" ? `<div class="fleet__actions"><button type="button" class="button button--ghost manager-end-booking-button" data-booking-id="${booking.id}">End</button><button type="button" class="button button--ghost manager-cancel-booking-button" data-booking-id="${booking.id}">Cancel</button></div>` : ""}
+            <strong>${booking.startTime || "-"} to ${booking.endTime || "-"} / GBP ${booking.price} / ${booking.status}</strong>
+            <div class="fleet__actions">
+              ${booking.status === "Active" ? `<button type="button" class="button button--ghost manager-end-booking-button" data-booking-id="${booking.id}">End</button><button type="button" class="button button--ghost manager-cancel-booking-button" data-booking-id="${booking.id}">Cancel</button>` : ""}
+            </div>
           </div>
         `
     )
     .join("");
 
-  document.getElementById("customer-booking-history").innerHTML = customerContent;
-  document.getElementById("booking-history").innerHTML = managerContent;
+  document.getElementById("customer-booking-history").innerHTML =
+    customerContent || "<div><span>No bookings yet</span><strong>Your bookings will appear here.</strong></div>";
+  const managerHistory = document.getElementById("booking-history");
+  if (managerHistory) {
+    managerHistory.innerHTML = managerContent;
+  }
 
   document.querySelectorAll(".history-end-button").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -305,6 +949,107 @@ function renderBookingHistory() {
       }
     });
   });
+
+  document.querySelectorAll(".view-route-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const bookingId = Number(button.dataset.bookingId);
+      if (expandedRouteBookingId === bookingId) {
+        expandedRouteBookingId = null;
+        destroyRouteMap();
+        renderBookingHistory();
+        return;
+      }
+
+      expandedRouteBookingId = bookingId;
+      destroyRouteMap();
+      renderBookingHistory();
+    });
+  });
+
+  if (expandedRouteBookingId && customerBookings.some((booking) => booking.id === expandedRouteBookingId)) {
+    window.setTimeout(() => {
+      showBookingRoute(expandedRouteBookingId);
+    }, 50);
+  }
+}
+
+async function showBookingRoute(bookingId) {
+  const feedback = document.getElementById(`route-feedback-${bookingId}`);
+  const mapElement = document.getElementById(`booking-route-map-${bookingId}`);
+
+  if (!feedback || !mapElement) {
+    return;
+  }
+
+  feedback.textContent = "Loading route...";
+
+  try {
+    const result = await api(`/api/bookings/route?bookingId=${bookingId}`);
+    const { booking, route } = result;
+    feedback.textContent = route.length
+      ? `${route.length} GPS point(s) generated for this booking.`
+      : "No GPS points are available for this booking yet.";
+
+    if (!window.L) {
+      feedback.textContent = "Leaflet could not be loaded for the route map.";
+      return;
+    }
+
+    destroyRouteMap();
+
+    routeMap = window.L.map(mapElement, {
+      zoomControl: true,
+      attributionControl: true
+    }).setView([currentUserCoords.lat, currentUserCoords.lng], 15);
+
+    window.L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(routeMap);
+
+    if (!route.length) {
+      routeMap.setView([currentUserCoords.lat, currentUserCoords.lng], 15);
+      return;
+    }
+
+    const latLngs = route.map((point) => [point.latitude, point.longitude]);
+    routePolyline = window.L.polyline(latLngs, {
+      color: "#1d4ed8",
+      weight: 4,
+      opacity: 0.8
+    }).addTo(routeMap);
+
+    const startMarker = window.L.circleMarker(latLngs[0], {
+      radius: 7,
+      color: "#ffffff",
+      weight: 2,
+      fillColor: "#0e766e",
+      fillOpacity: 1
+    }).bindTooltip("Start", { permanent: true, direction: "top", offset: [0, -8] }).addTo(routeMap);
+
+    const endMarker = window.L.circleMarker(latLngs[latLngs.length - 1], {
+      radius: 7,
+      color: "#ffffff",
+      weight: 2,
+      fillColor: "#b85b45",
+      fillOpacity: 1
+    }).bindTooltip("Latest", { permanent: true, direction: "top", offset: [0, -8] }).addTo(routeMap);
+
+    routeMarkers.push(startMarker, endMarker);
+    routeMap.fitBounds(routePolyline.getBounds(), { padding: [24, 24] });
+    window.setTimeout(() => routeMap.invalidateSize(), 80);
+  } catch (error) {
+    feedback.textContent = error.message;
+  }
+}
+
+function destroyRouteMap() {
+  if (routeMap) {
+    routeMap.remove();
+    routeMap = null;
+  }
+  routePolyline = null;
+  routeMarkers = [];
 }
 
 function renderManagerUsers() {
@@ -381,11 +1126,16 @@ function renderSummaries() {
 
 function renderAll() {
   renderScooterSelects();
-  renderFleet();
+  renderScooterMap();
+  renderBookingFormDetails();
+  renderBookingEstimate();
   renderBookingSummary();
   renderPriceConfiguration();
   renderBookingHistory();
   renderManagerUsers();
+  renderManagerStoreOptions();
+  renderManagerStoreInventory();
+  renderManagerStoreMap();
   renderIssues();
   renderSummaries();
 }
@@ -400,6 +1150,10 @@ roleButtons.forEach((button) => {
 
 tabs.forEach((tab) => {
   tab.addEventListener("click", () => setPage(tab.dataset.page));
+});
+
+managerNavTabs.forEach((tab) => {
+  tab.addEventListener("click", () => setManagerSection(tab.dataset.managerSection));
 });
 
 registerForm.addEventListener("submit", async (event) => {
@@ -430,7 +1184,7 @@ loginForm.addEventListener("submit", async (event) => {
   try {
     const result = await api("/api/login", {
       method: "POST",
-      body: JSON.stringify({ role: "customer", email, password })
+      body: JSON.stringify({ role: uiState.role, email, password })
     });
     uiState.sessionToken = result.sessionToken;
     localStorage.setItem("cityhopSessionToken", result.sessionToken);
@@ -444,13 +1198,19 @@ loginForm.addEventListener("submit", async (event) => {
 
 bookingForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const scooterId = document.getElementById("booking-scooter").value;
-  const durationHours = Number(document.getElementById("booking-duration").value);
+  const scooterId = uiState.selectedScooterId;
+  const startTime = document.getElementById("booking-start-time").value;
+  const endTime = document.getElementById("booking-end-time").value;
+
+  if (!scooterId) {
+    document.getElementById("booking-feedback").textContent = "Please choose a scooter from the map before booking.";
+    return;
+  }
 
   try {
     const result = await api("/api/bookings", {
       method: "POST",
-      body: JSON.stringify({ scooterId, durationHours })
+      body: JSON.stringify({ scooterId, startTime, endTime })
     });
     document.getElementById("booking-feedback").textContent = result.message;
     uiState.data = result.state;
@@ -481,32 +1241,87 @@ issueForm.addEventListener("submit", async (event) => {
   }
 });
 
-priceForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const prices = {
-    1: Number(document.getElementById("price-1").value),
-    4: Number(document.getElementById("price-4").value),
-    24: Number(document.getElementById("price-24").value),
-    168: Number(document.getElementById("price-168").value)
-  };
+if (storeForm) {
+  storeForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const isEditing = Boolean(uiState.selectedManagerStoreId);
+      const result = await api(isEditing ? "/api/stores/update" : "/api/stores", {
+        method: "POST",
+        body: JSON.stringify({
+          ...(isEditing ? { storeId: uiState.selectedManagerStoreId } : {}),
+          name: document.getElementById("store-name").value.trim(),
+          latitude: Number(document.getElementById("store-latitude").value),
+          longitude: Number(document.getElementById("store-longitude").value)
+        })
+      });
+      uiState.data = result.state;
+      resetStoreForm();
+      document.getElementById("store-feedback").textContent = result.message;
+      renderAll();
+    } catch (error) {
+      document.getElementById("store-feedback").textContent = error.message;
+    }
+  });
+}
+
+document.getElementById("store-cancel-edit-button")?.addEventListener("click", () => {
+  resetStoreForm();
+  document.getElementById("store-feedback").textContent = "Store editing was cancelled.";
+});
+
+document.getElementById("store-delete-button")?.addEventListener("click", async () => {
+  if (!uiState.selectedManagerStoreId) {
+    return;
+  }
 
   try {
-    const result = await api("/api/prices", {
+    const result = await api("/api/stores/delete", {
       method: "POST",
-      body: JSON.stringify({ prices })
+      body: JSON.stringify({ storeId: uiState.selectedManagerStoreId })
     });
     uiState.data = result.state;
-    document.getElementById("price-feedback").textContent = result.message;
+    resetStoreForm();
+    document.getElementById("store-feedback").textContent = result.message;
+    document.getElementById("manager-scooter-feedback").textContent = "";
     renderAll();
   } catch (error) {
-    document.getElementById("price-feedback").textContent = error.message;
+    document.getElementById("store-feedback").textContent = error.message;
   }
+});
+
+if (managerScooterForm) {
+  managerScooterForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      const result = await api("/api/stores/scooters", {
+        method: "POST",
+        body: JSON.stringify({
+          storeId: Number(document.getElementById("manager-store-select").value),
+          hourlyPrice: Number(document.getElementById("manager-scooter-price").value),
+          battery: Number(document.getElementById("manager-scooter-battery").value)
+        })
+      });
+      uiState.data = result.state;
+      managerScooterForm.reset();
+      document.getElementById("manager-scooter-feedback").textContent = result.message;
+      renderAll();
+    } catch (error) {
+      document.getElementById("manager-scooter-feedback").textContent = error.message;
+    }
+  });
+}
+
+document.getElementById("manager-store-select")?.addEventListener("change", () => {
+  renderManagerStoreInventory();
 });
 
 logoutButton.addEventListener("click", () => {
   logout();
 });
 backToProductsButton.addEventListener("click", () => setPage("products"));
+document.getElementById("booking-start-time").addEventListener("input", () => renderBookingEstimate());
+document.getElementById("booking-end-time").addEventListener("input", () => renderBookingEstimate());
 
 async function bootstrap() {
   setRole("customer");
@@ -522,6 +1337,7 @@ async function bootstrap() {
     const result = await api("/api/session");
     uiState.currentUser = result.user;
     enterApp(result.user);
+    requestUserLocation();
   } catch (error) {
     uiState.sessionToken = "";
     localStorage.removeItem("cityhopSessionToken");
@@ -529,3 +1345,5 @@ async function bootstrap() {
 }
 
 bootstrap();
+
+
