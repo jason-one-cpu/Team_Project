@@ -14,12 +14,17 @@ const uiState = {
     bookings: [],
     issues: [],
     priceMap: {},
+    statistics: {
+      weeklyIncomeByOption: [],
+      dailyIncome: []
+    },
     summary: {
       availableScooters: 0,
       activeBookings: 0,
       totalBookings: 0,
       totalRevenue: 0,
       openIssues: 0,
+      highPriorityIssues: 0,
       fleetAvailability: 0
     }
   }
@@ -145,6 +150,22 @@ async function loadState() {
   return data;
 }
 
+async function hashClientPassword(password) {
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(password);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function getCurrentUserRecord() {
+  if (!uiState.currentUser) {
+    return null;
+  }
+  return uiState.data.users.find((user) => user.id === uiState.currentUser.id) || null;
+}
+
 function setAuthMode(mode) {
   const normalizedMode = uiState.role === "manager" ? "login" : mode;
   uiState.authMode = normalizedMode;
@@ -246,10 +267,58 @@ async function logout() {
 
 function renderScooterSelects() {
   const issueSelect = document.getElementById("issue-scooter");
+  const guestStoreSelect = document.getElementById("guest-store-select");
+  const guestScooterSelect = document.getElementById("guest-scooter-select");
+  const previousGuestStoreId = guestStoreSelect?.value;
+  const previousGuestScooterId = guestScooterSelect?.value;
 
   issueSelect.innerHTML = uiState.data.scooters
     .map((scooter) => `<option value="${scooter.id}">${scooter.id} - ${scooter.location}</option>`)
     .join("");
+
+  if (guestStoreSelect) {
+    guestStoreSelect.innerHTML = uiState.data.stores
+      .map((store) => `<option value="${store.id}">${store.name}</option>`)
+      .join("");
+    if (previousGuestStoreId && Array.from(guestStoreSelect.options).some((option) => option.value === previousGuestStoreId)) {
+      guestStoreSelect.value = previousGuestStoreId;
+    }
+  }
+
+  if (guestScooterSelect) {
+    const selectedStoreId = Number(guestStoreSelect?.value || uiState.data.stores[0]?.id || 0);
+    const availableScooters = uiState.data.scooters.filter(
+      (scooter) => scooter.available && scooter.storeId === selectedStoreId
+    );
+    guestScooterSelect.innerHTML = availableScooters
+      .map(
+        (scooter) =>
+          `<option value="${scooter.id}">${scooter.id} - ${scooter.location} - GBP ${scooter.hourlyPrice}/hour</option>`
+      )
+      .join("");
+    if (previousGuestScooterId && Array.from(guestScooterSelect.options).some((option) => option.value === previousGuestScooterId)) {
+      guestScooterSelect.value = previousGuestScooterId;
+    }
+  }
+}
+
+function syncGuestBookingDefaults() {
+  const startInput = document.getElementById("guest-start-time");
+  const endInput = document.getElementById("guest-end-time");
+  if (!startInput || !endInput) {
+    return;
+  }
+  if (!startInput.value) {
+    const start = new Date();
+    start.setMinutes(0, 0, 0);
+    start.setHours(start.getHours() + 1);
+    startInput.value = formatDateTimeLocalValue(start);
+  }
+  if (!endInput.value) {
+    const end = new Date(startInput.value);
+    end.setHours(end.getHours() + 1);
+    endInput.value = formatDateTimeLocalValue(end);
+  }
 }
 
 function getSelectedScooter() {
@@ -282,11 +351,39 @@ function calculateBookingEstimate() {
   }
 
   const durationHours = Math.max(1, Math.ceil(milliseconds / 3600000));
+  const discount = calculateExpectedDiscount(durationHours);
+  const baseCost = durationHours * scooter.hourlyPrice;
   return {
     valid: true,
     durationHours,
-    estimatedCost: durationHours * scooter.hourlyPrice
+    estimatedCost: Math.max(1, Math.round(baseCost * (1 - discount.rate))),
+    baseCost,
+    discount
   };
+}
+
+function calculateExpectedDiscount(durationHours) {
+  const user = getCurrentUserRecord();
+  if (!user || !uiState.currentUser) {
+    return { label: "None", rate: 0 };
+  }
+
+  const currentWeekHours = uiState.data.bookings
+    .filter((booking) => booking.customer === uiState.currentUser.name)
+    .reduce((total, booking) => total + (Number(booking.durationHours) || 0), 0);
+
+  const discounts = [{ label: "None", rate: 0 }];
+  if (currentWeekHours + durationHours >= 8) {
+    discounts.push({ label: "Frequent user", rate: 0.12 });
+  }
+  if (user.accountType === "student") {
+    discounts.push({ label: "Student", rate: 0.10 });
+  }
+  if (user.accountType === "senior") {
+    discounts.push({ label: "Senior", rate: 0.15 });
+  }
+
+  return discounts.sort((left, right) => right.rate - left.rate)[0];
 }
 
 function syncBookingTimeDefaults() {
@@ -315,6 +412,9 @@ function syncBookingTimeDefaults() {
 function renderBookingFormDetails() {
   const details = document.getElementById("booking-scooter-details");
   const scooter = getSelectedScooter();
+  const savedCardRow = document.getElementById("saved-card-row");
+  const savedCardCheckbox = document.getElementById("use-saved-card");
+  const savedCardLabel = document.getElementById("saved-card-label");
   if (!details) {
     return;
   }
@@ -336,7 +436,18 @@ function renderBookingFormDetails() {
     <div><span>Hourly price</span><strong>GBP ${scooter.hourlyPrice}/hour</strong></div>
   `;
 
+  const currentUserRecord = getCurrentUserRecord();
+  if (savedCardRow && savedCardCheckbox && savedCardLabel) {
+    const hasSavedCard = Boolean(currentUserRecord?.hasSavedCard);
+    savedCardRow.classList.toggle("hidden", !hasSavedCard);
+    savedCardCheckbox.checked = false;
+    savedCardLabel.textContent = hasSavedCard
+      ? `Use saved card: ${currentUserRecord.savedCardLabel}`
+      : "Use saved card";
+  }
+
   syncBookingTimeDefaults();
+  updatePaymentFieldVisibility();
 }
 
 function renderBookingEstimate() {
@@ -373,8 +484,22 @@ function renderBookingEstimate() {
 
   estimate.innerHTML = `
     <div><span>Estimated duration</span><strong>${result.durationHours} hour(s)</strong></div>
+    <div><span>Base cost</span><strong>GBP ${result.baseCost}</strong></div>
+    <div><span>Discount</span><strong>${result.discount.label} (${Math.round(result.discount.rate * 100)}%)</strong></div>
     <div><span>Estimated cost</span><strong>GBP ${result.estimatedCost}</strong></div>
   `;
+}
+
+function updatePaymentFieldVisibility() {
+  const useSavedCard = document.getElementById("use-saved-card")?.checked;
+  const newCardFields = document.getElementById("new-card-fields");
+  const saveCardOption = document.getElementById("save-card-for-future")?.closest(".checkbox-row");
+  if (newCardFields) {
+    newCardFields.classList.toggle("hidden", Boolean(useSavedCard));
+  }
+  if (saveCardOption) {
+    saveCardOption.classList.toggle("hidden", Boolean(useSavedCard));
+  }
 }
 
 function getStoreSummaries() {
@@ -866,8 +991,21 @@ function renderBookingHistory() {
               <strong>${booking.startTime || "-"} to ${booking.endTime || "-"} / GBP ${booking.price} / ${booking.status}</strong>
               <div class="fleet__actions">
                 <button type="button" class="button button--ghost view-route-button" data-booking-id="${booking.id}">${expandedRouteBookingId === booking.id ? "Hide route" : "View route"}</button>
+                ${booking.status === "Active" ? `
+                  <select class="booking-extend-select" data-booking-id="${booking.id}">
+                    <option value="1">+1 hour</option>
+                    <option value="4">+4 hours</option>
+                    <option value="24">+1 day</option>
+                  </select>
+                  <button type="button" class="button button--ghost extend-booking-button" data-booking-id="${booking.id}">Extend</button>
+                ` : ""}
                 ${booking.status === "Active" ? `<button type="button" class="button button--ghost history-end-button" data-booking-id="${booking.id}">End</button>` : ""}
               </div>
+            </div>
+            <div class="booking-entry__meta">
+              <span>Payment: ${booking.paymentMethod} / ${booking.paymentStatus}</span>
+              <span>Discount: ${booking.discountType}</span>
+              <span>Email: ${booking.confirmationEmailStatus}${booking.confirmationReference ? ` (${booking.confirmationReference})` : ""}</span>
             </div>
             ${expandedRouteBookingId === booking.id ? `
               <div class="booking-entry__route">
@@ -909,6 +1047,26 @@ function renderBookingHistory() {
         const result = await api("/api/bookings/end", {
           method: "POST",
           body: JSON.stringify({ bookingId: Number(button.dataset.bookingId) })
+        });
+        uiState.data = result.state;
+        document.getElementById("booking-action-feedback").textContent = result.message;
+        renderAll();
+      } catch (error) {
+        document.getElementById("booking-action-feedback").textContent = error.message;
+      }
+    });
+  });
+
+  document.querySelectorAll(".extend-booking-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const select = document.querySelector(`.booking-extend-select[data-booking-id="${button.dataset.bookingId}"]`);
+      try {
+        const result = await api("/api/bookings/extend", {
+          method: "POST",
+          body: JSON.stringify({
+            bookingId: Number(button.dataset.bookingId),
+            additionalHours: Number(select?.value || 1)
+          })
         });
         uiState.data = result.state;
         document.getElementById("booking-action-feedback").textContent = result.message;
@@ -1117,6 +1275,7 @@ function renderIssues() {
         <div>
           <span>${issue.scooterId}: ${issue.description}</span>
           <strong>${issue.priority} / ${issue.status}</strong>
+          ${issue.status === "Open" && issue.priority !== "High" ? `<button type="button" class="button button--ghost escalate-issue-button" data-issue-id="${issue.id}">Escalate</button>` : ""}
           ${issue.status === "Open" ? `<button type="button" class="button button--ghost resolve-issue-button" data-issue-id="${issue.id}">Resolve</button>` : ""}
         </div>
       `
@@ -1124,10 +1283,42 @@ function renderIssues() {
     .join("");
   document.getElementById("manager-issue-list").innerHTML = managerContent;
 
+  const highPriorityContent = uiState.data.issues
+    .filter((issue) => issue.priority === "High" && issue.status === "Open")
+    .map(
+      (issue) => `
+        <div>
+          <span>${issue.scooterId}: ${issue.description}</span>
+          <strong>${issue.priority} / ${issue.status}</strong>
+        </div>
+      `
+    )
+    .join("");
+  const highPriorityContainer = document.getElementById("manager-high-priority-issues");
+  if (highPriorityContainer) {
+    highPriorityContainer.innerHTML =
+      highPriorityContent || "<div><span>No high priority issues</span><strong>Escalated issues will appear here.</strong></div>";
+  }
+
   document.querySelectorAll(".resolve-issue-button").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
         const result = await api("/api/issues/resolve", {
+          method: "POST",
+          body: JSON.stringify({ issueId: Number(button.dataset.issueId) })
+        });
+        uiState.data = result.state;
+        renderAll();
+      } catch (error) {
+        document.getElementById("booking-action-feedback").textContent = error.message;
+      }
+    });
+  });
+
+  document.querySelectorAll(".escalate-issue-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        const result = await api("/api/issues/escalate", {
           method: "POST",
           body: JSON.stringify({ issueId: Number(button.dataset.issueId) })
         });
@@ -1152,8 +1343,68 @@ function renderSummaries() {
   document.getElementById("manager-issue-count").textContent = summary.openIssues;
 }
 
+function buildBarChart(items, valueKey, labelKey, colorClass) {
+  const maxValue = Math.max(...items.map((item) => item[valueKey] || 0), 1);
+  return items
+    .map((item) => {
+      const value = item[valueKey] || 0;
+      const width = Math.max(6, Math.round((value / maxValue) * 100));
+      return `
+        <div class="chart-row">
+          <div class="chart-row__label">
+            <strong>${item[labelKey]}</strong>
+            <span>GBP ${value}</span>
+          </div>
+          <div class="chart-row__track">
+            <div class="chart-row__bar ${colorClass}" style="width: ${width}%"></div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderStatistics() {
+  const optionSummary = document.getElementById("statistics-option-summary");
+  const dailySummary = document.getElementById("statistics-daily-summary");
+  const optionChart = document.getElementById("statistics-option-chart");
+  const dailyChart = document.getElementById("statistics-daily-chart");
+  if (!optionSummary || !dailySummary || !optionChart || !dailyChart) {
+    return;
+  }
+
+  const optionData = uiState.data.statistics?.weeklyIncomeByOption || [];
+  const dailyData = uiState.data.statistics?.dailyIncome || [];
+
+  optionSummary.innerHTML = optionData
+    .map(
+      (entry) => `
+        <div>
+          <span>${entry.option}</span>
+          <strong>GBP ${entry.income} / ${entry.bookings} booking(s)</strong>
+        </div>
+      `
+    )
+    .join("") || "<div><span>No weekly data</span><strong>Income will appear after bookings are created.</strong></div>";
+
+  dailySummary.innerHTML = dailyData
+    .map(
+      (entry) => `
+        <div>
+          <span>${entry.date}</span>
+          <strong>GBP ${entry.income} / ${entry.bookings} booking(s)</strong>
+        </div>
+      `
+    )
+    .join("") || "<div><span>No daily data</span><strong>Daily income will appear after bookings are created.</strong></div>";
+
+  optionChart.innerHTML = buildBarChart(optionData, "income", "option", "chart-row__bar--accent");
+  dailyChart.innerHTML = buildBarChart(dailyData, "income", "date", "chart-row__bar--warm");
+}
+
 function renderAll() {
   renderScooterSelects();
+  syncGuestBookingDefaults();
   renderScooterMap();
   renderBookingFormDetails();
   renderBookingEstimate();
@@ -1166,6 +1417,7 @@ function renderAll() {
   renderManagerStoreMap();
   renderIssues();
   renderSummaries();
+  renderStatistics();
 }
 
 authModeButtons.forEach((button) => {
@@ -1187,13 +1439,15 @@ managerNavTabs.forEach((tab) => {
 registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = document.getElementById("register-name").value.trim();
+  const accountType = document.getElementById("register-account-type").value;
   const email = document.getElementById("register-email").value.trim();
   const password = document.getElementById("register-password").value.trim();
 
   try {
+    const passwordHash = await hashClientPassword(password);
     const result = await api("/api/register", {
       method: "POST",
-      body: JSON.stringify({ role: "customer", name, email, password })
+      body: JSON.stringify({ role: "customer", name, accountType, email, password: passwordHash })
     });
     registerForm.reset();
     authFeedback.textContent = `Account created for ${result.user.name}. You can now log in.`;
@@ -1210,9 +1464,10 @@ loginForm.addEventListener("submit", async (event) => {
   const password = document.getElementById("login-password").value.trim();
 
   try {
+    const passwordHash = await hashClientPassword(password);
     const result = await api("/api/login", {
       method: "POST",
-      body: JSON.stringify({ role: uiState.role, email, password })
+      body: JSON.stringify({ role: uiState.role, email, password: passwordHash })
     });
     uiState.sessionToken = result.sessionToken;
     localStorage.setItem("cityhopSessionToken", result.sessionToken);
@@ -1229,6 +1484,17 @@ bookingForm.addEventListener("submit", async (event) => {
   const scooterId = uiState.selectedScooterId;
   const startTime = document.getElementById("booking-start-time").value;
   const endTime = document.getElementById("booking-end-time").value;
+  const useSavedCard = document.getElementById("use-saved-card")?.checked;
+  const payment = useSavedCard
+    ? { useSavedCard: true }
+    : {
+        useSavedCard: false,
+        cardholderName: document.getElementById("payment-cardholder").value.trim(),
+        cardNumber: document.getElementById("payment-card-number").value.trim(),
+        expiry: document.getElementById("payment-expiry").value.trim(),
+        cvv: document.getElementById("payment-cvv").value.trim(),
+        saveCard: document.getElementById("save-card-for-future").checked
+      };
 
   if (!scooterId) {
     document.getElementById("booking-feedback").textContent = "Please choose a scooter from the map before booking.";
@@ -1238,7 +1504,7 @@ bookingForm.addEventListener("submit", async (event) => {
   try {
     const result = await api("/api/bookings", {
       method: "POST",
-      body: JSON.stringify({ scooterId, startTime, endTime })
+      body: JSON.stringify({ scooterId, startTime, endTime, payment })
     });
     document.getElementById("booking-feedback").textContent = result.message;
     uiState.data = result.state;
@@ -1263,9 +1529,10 @@ issueForm.addEventListener("submit", async (event) => {
     });
     uiState.data = result.state;
     issueForm.reset();
+    document.getElementById("issue-feedback").textContent = result.message;
     renderAll();
   } catch (error) {
-    document.getElementById("booking-action-feedback").textContent = error.message;
+    document.getElementById("issue-feedback").textContent = error.message;
   }
 });
 
@@ -1342,6 +1609,42 @@ if (managerScooterForm) {
 
 document.getElementById("manager-store-select")?.addEventListener("change", () => {
   renderManagerStoreInventory();
+});
+
+document.getElementById("guest-store-select")?.addEventListener("change", () => {
+  renderScooterSelects();
+});
+
+document.getElementById("use-saved-card")?.addEventListener("change", () => {
+  updatePaymentFieldVisibility();
+});
+
+document.getElementById("guest-booking-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const result = await api("/api/staff/bookings", {
+      method: "POST",
+      body: JSON.stringify({
+        guestName: document.getElementById("guest-name").value.trim(),
+        guestEmail: document.getElementById("guest-email").value.trim(),
+        scooterId: document.getElementById("guest-scooter-select").value,
+        startTime: document.getElementById("guest-start-time").value,
+        endTime: document.getElementById("guest-end-time").value,
+        payment: {
+          cardholderName: document.getElementById("guest-cardholder").value.trim(),
+          cardNumber: document.getElementById("guest-card-number").value.trim(),
+          expiry: document.getElementById("guest-card-expiry").value.trim(),
+          cvv: document.getElementById("guest-card-cvv").value.trim()
+        }
+      })
+    });
+    uiState.data = result.state;
+    event.target.reset();
+    document.getElementById("guest-booking-feedback").textContent = result.message;
+    renderAll();
+  } catch (error) {
+    document.getElementById("guest-booking-feedback").textContent = error.message;
+  }
 });
 
 logoutButton.addEventListener("click", () => {

@@ -40,6 +40,14 @@
             <input type="text" id="register-name" placeholder="Alex Chen">
           </label>
           <label>
+            Account type
+            <select id="register-account-type">
+              <option value="standard">Standard</option>
+              <option value="student">Student</option>
+              <option value="senior">Senior citizen</option>
+            </select>
+          </label>
+          <label>
             Email
             <input type="email" id="register-email" placeholder="alex@example.com">
           </label>
@@ -102,6 +110,7 @@
         <button class="tab hidden manager-nav-tab" data-manager-section="scooter-manager">Scooter manager</button>
         <button class="tab hidden manager-nav-tab" data-manager-section="user-manager">User manager</button>
         <button class="tab hidden manager-nav-tab" data-manager-section="issue-manager">Issue manager</button>
+        <button class="tab hidden manager-nav-tab" data-manager-section="statistics-manager">Statistics</button>
       </nav>
 
       <section class="page is-active" id="products-page">
@@ -158,9 +167,43 @@
               <input type="datetime-local" id="booking-end-time">
             </label>
             <div id="booking-estimate" class="stack"></div>
+            <div class="payment-panel">
+              <div class="card__header">
+                <div>
+                  <p class="card__eyebrow">Payment</p>
+                  <h3>Simulated card payment</h3>
+                </div>
+              </div>
+              <label class="checkbox-row hidden" id="saved-card-row">
+                <input type="checkbox" id="use-saved-card">
+                <span id="saved-card-label">Use saved card</span>
+              </label>
+              <div class="grid grid--two" id="new-card-fields">
+                <label>
+                  Cardholder name
+                  <input type="text" id="payment-cardholder" placeholder="Alex Chen">
+                </label>
+                <label>
+                  Card number
+                  <input type="text" id="payment-card-number" inputmode="numeric" placeholder="4111 1111 1111 1111">
+                </label>
+                <label>
+                  Expiry
+                  <input type="text" id="payment-expiry" placeholder="12/29">
+                </label>
+                <label>
+                  CVV
+                  <input type="password" id="payment-cvv" inputmode="numeric" placeholder="123">
+                </label>
+              </div>
+              <label class="checkbox-row">
+                <input type="checkbox" id="save-card-for-future">
+                <span>Store masked card details for faster future bookings</span>
+              </label>
+            </div>
             <button type="submit" class="button button--primary">Confirm booking</button>
           </form>
-          <p class="feedback" id="booking-feedback"></p>
+          <p class="feedback" id="booking-feedback" aria-live="polite"></p>
         </article>
       </section>
 
@@ -173,7 +216,7 @@
             </div>
           </div>
           <div id="customer-booking-history" class="list booking-history-list"></div>
-          <p class="feedback" id="booking-action-feedback"></p>
+          <p class="feedback" id="booking-action-feedback" aria-live="polite"></p>
         </article>
       </section>
 
@@ -197,6 +240,7 @@
               </label>
               <button type="submit" class="button button--ghost">Submit report</button>
             </form>
+            <p class="feedback" id="issue-feedback" aria-live="polite"></p>
           </article>
 
           <article class="card">
@@ -301,18 +345,132 @@
               </div>
               <div id="manager-user-list" class="list"></div>
             </article>
-          </section>
-
-          <section class="manager-section" id="issue-manager-section">
             <article class="card">
               <div class="card__header">
                 <div>
-                  <p class="card__eyebrow">Operations</p>
-                  <h2>Reported problems</h2>
+                  <p class="card__eyebrow">Walk-in hire</p>
+                  <h2>Create a guest booking</h2>
                 </div>
               </div>
-              <div id="manager-issue-list" class="list"></div>
+              <form class="form" id="guest-booking-form">
+                <div class="grid grid--two">
+                  <label>
+                    Guest name
+                    <input type="text" id="guest-name" placeholder="Walk-in customer">
+                  </label>
+                  <label>
+                    Guest email
+                    <input type="email" id="guest-email" placeholder="guest@example.com">
+                  </label>
+                </div>
+                <div class="grid grid--two">
+                  <label>
+                    Store
+                    <select id="guest-store-select"></select>
+                  </label>
+                  <label>
+                    Scooter
+                    <select id="guest-scooter-select"></select>
+                  </label>
+                </div>
+                <div class="grid grid--two">
+                  <label>
+                    Start time
+                    <input type="datetime-local" id="guest-start-time">
+                  </label>
+                  <label>
+                    End time
+                    <input type="datetime-local" id="guest-end-time">
+                  </label>
+                </div>
+                <div class="grid grid--two">
+                  <label>
+                    Cardholder name
+                    <input type="text" id="guest-cardholder" placeholder="Guest payment card">
+                  </label>
+                  <label>
+                    Card number
+                    <input type="text" id="guest-card-number" inputmode="numeric" placeholder="5555 5555 5555 4444">
+                  </label>
+                  <label>
+                    Expiry
+                    <input type="text" id="guest-card-expiry" placeholder="11/29">
+                  </label>
+                  <label>
+                    CVV
+                    <input type="password" id="guest-card-cvv" inputmode="numeric" placeholder="321">
+                  </label>
+                </div>
+                <button type="submit" class="button button--primary">Create walk-in booking</button>
+              </form>
+              <p class="feedback" id="guest-booking-feedback" aria-live="polite"></p>
             </article>
+          </section>
+
+          <section class="manager-section" id="issue-manager-section">
+            <div class="grid grid--two">
+              <article class="card">
+                <div class="card__header">
+                  <div>
+                    <p class="card__eyebrow">Operations</p>
+                    <h2>All reported problems</h2>
+                  </div>
+                </div>
+                <div id="manager-issue-list" class="list"></div>
+              </article>
+              <article class="card">
+                <div class="card__header">
+                  <div>
+                    <p class="card__eyebrow">Priority view</p>
+                    <h2>High priority issues</h2>
+                  </div>
+                </div>
+                <div id="manager-high-priority-issues" class="list"></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="manager-section" id="statistics-manager-section">
+            <div class="grid grid--two">
+              <article class="card">
+                <div class="card__header">
+                  <div>
+                    <p class="card__eyebrow">Weekly options</p>
+                    <h2>Income by rental option</h2>
+                  </div>
+                </div>
+                <div id="statistics-option-summary" class="list"></div>
+              </article>
+              <article class="card">
+                <div class="card__header">
+                  <div>
+                    <p class="card__eyebrow">Daily totals</p>
+                    <h2>Combined daily income over 7 days</h2>
+                  </div>
+                </div>
+                <div id="statistics-daily-summary" class="list"></div>
+              </article>
+            </div>
+            <div class="grid grid--two">
+              <article class="card">
+                <div class="card__header">
+                  <div>
+                    <p class="card__eyebrow">Chart</p>
+                    <h2>Weekly income by rental option</h2>
+                  </div>
+                </div>
+                <div id="statistics-option-chart" class="chart-panel"></div>
+              </article>
+              <article class="card">
+                <div class="card__header">
+                  <div>
+                    <p class="card__eyebrow">Chart</p>
+                    <h2>Daily income graph</h2>
+                  </div>
+                </div>
+                <div id="statistics-daily-chart" class="chart-panel"></div>
+              </article>
+            </div>
           </section>
         </div>
       </section>

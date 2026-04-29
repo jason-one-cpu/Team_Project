@@ -2,6 +2,7 @@ import json
 import math
 import random
 import secrets
+import hashlib
 import sqlite3
 from datetime import datetime, timedelta
 from http import HTTPStatus
@@ -43,7 +44,11 @@ def init_db():
                 role TEXT NOT NULL,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
-                password TEXT NOT NULL
+                password TEXT NOT NULL,
+                account_type TEXT NOT NULL DEFAULT 'standard',
+                card_brand TEXT,
+                card_last4 TEXT,
+                card_token TEXT
             );
 
             CREATE TABLE IF NOT EXISTS scooters (
@@ -73,6 +78,8 @@ def init_db():
             CREATE TABLE IF NOT EXISTS bookings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 customer_name TEXT NOT NULL,
+                customer_email TEXT,
+                is_guest INTEGER NOT NULL DEFAULT 0,
                 scooter_code TEXT NOT NULL,
                 start_time TEXT,
                 end_time TEXT,
@@ -81,7 +88,13 @@ def init_db():
                 start_battery INTEGER,
                 duration_hours INTEGER NOT NULL,
                 price INTEGER NOT NULL,
-                status TEXT NOT NULL
+                status TEXT NOT NULL,
+                payment_status TEXT NOT NULL DEFAULT 'Paid',
+                payment_method TEXT NOT NULL DEFAULT 'Card',
+                discount_type TEXT NOT NULL DEFAULT 'None',
+                discount_rate REAL NOT NULL DEFAULT 0,
+                confirmation_reference TEXT,
+                confirmation_email_status TEXT NOT NULL DEFAULT 'Pending'
             );
 
             CREATE TABLE IF NOT EXISTS issues (
@@ -99,6 +112,16 @@ def init_db():
                 latitude REAL NOT NULL,
                 longitude REAL NOT NULL,
                 battery INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS email_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                booking_id INTEGER,
+                recipient TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                body TEXT NOT NULL,
+                status TEXT NOT NULL,
+                sent_at TEXT NOT NULL
             );
             """
         )
@@ -118,6 +141,20 @@ def init_db():
             conn.execute("ALTER TABLE scooters ADD COLUMN hourly_price INTEGER NOT NULL DEFAULT 4")
 
         booking_columns = [row["name"] for row in conn.execute("PRAGMA table_info(bookings)").fetchall()]
+        user_columns = [row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "account_type" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN account_type TEXT NOT NULL DEFAULT 'standard'")
+        if "card_brand" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN card_brand TEXT")
+        if "card_last4" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN card_last4 TEXT")
+        if "card_token" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN card_token TEXT")
+
+        if "customer_email" not in booking_columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN customer_email TEXT")
+        if "is_guest" not in booking_columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0")
         if "start_time" not in booking_columns:
             conn.execute("ALTER TABLE bookings ADD COLUMN start_time TEXT")
         if "end_time" not in booking_columns:
@@ -128,6 +165,18 @@ def init_db():
             conn.execute("ALTER TABLE bookings ADD COLUMN start_longitude REAL")
         if "start_battery" not in booking_columns:
             conn.execute("ALTER TABLE bookings ADD COLUMN start_battery INTEGER")
+        if "payment_status" not in booking_columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'Paid'")
+        if "payment_method" not in booking_columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'Card'")
+        if "discount_type" not in booking_columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN discount_type TEXT NOT NULL DEFAULT 'None'")
+        if "discount_rate" not in booking_columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN discount_rate REAL NOT NULL DEFAULT 0")
+        if "confirmation_reference" not in booking_columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN confirmation_reference TEXT")
+        if "confirmation_email_status" not in booking_columns:
+            conn.execute("ALTER TABLE bookings ADD COLUMN confirmation_email_status TEXT NOT NULL DEFAULT 'Pending'")
 
         existing_users = {
             row["email"]: row
@@ -135,7 +184,7 @@ def init_db():
         }
         bootstrap_users = []
         if "demo@cityhop.app" not in existing_users:
-            bootstrap_users.append(("U-001", "customer", "Demo User", "demo@cityhop.app", "demo"))
+            bootstrap_users.append(("U-001", "customer", "Demo User", "demo@cityhop.app", hash_password("demo")))
         if bootstrap_users:
             conn.executemany(
                 "INSERT INTO users (code, role, name, email, password) VALUES (?, ?, ?, ?, ?)",
@@ -154,7 +203,7 @@ def init_db():
                 admin_code = f"M-{manager_code_number:03d}"
             conn.execute(
                 "INSERT INTO users (code, role, name, email, password) VALUES (?, ?, ?, ?, ?)",
-                (admin_code, "manager", "Admin", "admin", "admin"),
+                (admin_code, "manager", "Admin", "admin", hash_password("admin")),
             )
         else:
             conn.execute(
@@ -162,10 +211,17 @@ def init_db():
                 UPDATE users
                 SET role = 'manager',
                     name = 'Admin',
-                    password = 'admin'
+                    password = ?
                 WHERE email = 'admin'
-                """
+                """,
+                (hash_password("admin"),),
             )
+        conn.execute(
+            """
+            UPDATE users
+            SET account_type = COALESCE(account_type, 'standard')
+            """
+        )
 
         if conn.execute("SELECT COUNT(*) FROM stores").fetchone()[0] == 0:
             conn.executemany(
@@ -261,6 +317,27 @@ def init_db():
             WHERE start_latitude IS NULL OR start_longitude IS NULL OR start_battery IS NULL
             """
         )
+        conn.execute(
+            """
+            UPDATE bookings
+            SET customer_email = COALESCE(customer_email, (
+                SELECT email FROM users WHERE users.name = bookings.customer_name LIMIT 1
+            )),
+                payment_status = COALESCE(payment_status, 'Paid'),
+                payment_method = COALESCE(payment_method, 'Card'),
+                discount_type = COALESCE(discount_type, 'None'),
+                discount_rate = COALESCE(discount_rate, 0),
+                confirmation_email_status = COALESCE(confirmation_email_status, 'Sent')
+            """
+        )
+
+        plaintext_users = conn.execute("SELECT id, password FROM users").fetchall()
+        for user_row in plaintext_users:
+            if user_row["password"] and not user_row["password"].startswith("pbkdf2_sha256$"):
+                conn.execute(
+                    "UPDATE users SET password = ? WHERE id = ?",
+                    (hash_password(user_row["password"]), user_row["id"]),
+                )
 
         if conn.execute("SELECT COUNT(*) FROM issues").fetchone()[0] == 0:
             conn.execute(
@@ -271,6 +348,158 @@ def init_db():
 
 def rows_to_dicts(rows):
     return [dict(row) for row in rows]
+
+
+def infer_card_brand(card_number):
+    if card_number.startswith("4"):
+        return "Visa"
+    if any(card_number.startswith(prefix) for prefix in ("51", "52", "53", "54", "55")):
+        return "Mastercard"
+    if card_number.startswith(("34", "37")):
+        return "Amex"
+    return "Card"
+
+
+def tokenize_card(card_number):
+    return hashlib.sha256(card_number.encode("utf-8")).hexdigest()
+
+
+def client_password_digest(password):
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def normalize_password_secret(password):
+    if len(password) == 64 and all(character in "0123456789abcdefABCDEF" for character in password):
+        return password.lower()
+    return client_password_digest(password)
+
+
+def hash_password(password, salt=None):
+    salt = salt or secrets.token_hex(16)
+    normalized_password = normalize_password_secret(password)
+    digest = hashlib.pbkdf2_hmac("sha256", normalized_password.encode("utf-8"), salt.encode("utf-8"), 120000).hex()
+    return f"pbkdf2_sha256${salt}${digest}"
+
+
+def verify_password(password, stored_password):
+    if not stored_password:
+        return False
+    if not stored_password.startswith("pbkdf2_sha256$"):
+        return secrets.compare_digest(stored_password, normalize_password_secret(password))
+    _, salt, digest = stored_password.split("$", 2)
+    normalized_password = normalize_password_secret(password)
+    candidate = hashlib.pbkdf2_hmac("sha256", normalized_password.encode("utf-8"), salt.encode("utf-8"), 120000).hex()
+    return secrets.compare_digest(candidate, digest)
+
+
+def booking_option_for_hours(duration_hours):
+    if duration_hours <= 1:
+        return "1 hour"
+    if duration_hours <= 4:
+        return "4 hours"
+    if duration_hours <= 24:
+        return "1 day"
+    return "1 week"
+
+
+def infer_issue_priority(description):
+    normalized = description.lower()
+    high_keywords = ["brake", "crash", "accident", "fire", "smoke", "injury", "unsafe"]
+    medium_keywords = ["battery", "light", "lock", "gps", "tyre", "tire", "screen", "slow"]
+    if any(keyword in normalized for keyword in high_keywords):
+        return "High"
+    if any(keyword in normalized for keyword in medium_keywords):
+        return "Medium"
+    return "Low"
+
+
+def calculate_discount(conn, customer_name, account_type, added_duration_hours):
+    now_dt = datetime.now()
+    week_start = (now_dt - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+    existing_hours = conn.execute(
+        """
+        SELECT COALESCE(SUM(duration_hours), 0)
+        FROM bookings
+        WHERE customer_name = ? AND start_time >= ?
+        """,
+        (customer_name, format_iso_minute(week_start)),
+    ).fetchone()[0]
+    total_hours = existing_hours + added_duration_hours
+
+    discounts = [("None", 0.0)]
+    if total_hours >= 8:
+        discounts.append(("Frequent user", 0.12))
+    if account_type == "student":
+        discounts.append(("Student", 0.10))
+    if account_type == "senior":
+        discounts.append(("Senior", 0.15))
+    return max(discounts, key=lambda item: item[1])
+
+
+def create_confirmation_reference():
+    return f"CH-{secrets.token_hex(4).upper()}"
+
+
+def send_confirmation_email(conn, booking_id, recipient, scooter_code, start_time, end_time, price):
+    reference = create_confirmation_reference()
+    subject = f"CityHop booking confirmation {reference}"
+    body = (
+        f"Your booking for {scooter_code} is confirmed.\n"
+        f"Start: {start_time}\nEnd: {end_time}\nPrice: GBP {price}\nReference: {reference}"
+    )
+    conn.execute(
+        """
+        INSERT INTO email_logs (booking_id, recipient, subject, body, status, sent_at)
+        VALUES (?, ?, ?, ?, 'Sent', ?)
+        """,
+        (booking_id, recipient, subject, body, format_iso_minute(datetime.now())),
+    )
+    conn.execute(
+        """
+        UPDATE bookings
+        SET confirmation_reference = ?, confirmation_email_status = 'Sent'
+        WHERE id = ?
+        """,
+        (reference, booking_id),
+    )
+    return reference
+
+
+def build_statistics(conn):
+    today = datetime.now().date()
+    dates = [(today - timedelta(days=offset)) for offset in range(6, -1, -1)]
+    daily_lookup = {date.isoformat(): {"date": date.isoformat(), "income": 0, "bookings": 0} for date in dates}
+    option_lookup = {
+        "1 hour": {"option": "1 hour", "income": 0, "bookings": 0},
+        "4 hours": {"option": "4 hours", "income": 0, "bookings": 0},
+        "1 day": {"option": "1 day", "income": 0, "bookings": 0},
+        "1 week": {"option": "1 week", "income": 0, "bookings": 0},
+    }
+    week_start = dates[0].isoformat()
+
+    rows = conn.execute(
+        """
+        SELECT start_time, duration_hours, price
+        FROM bookings
+        WHERE start_time IS NOT NULL AND date(start_time) >= date(?)
+        ORDER BY start_time
+        """,
+        (week_start,),
+    ).fetchall()
+
+    for row in rows:
+        booking_date = row["start_time"][:10]
+        if booking_date in daily_lookup:
+            daily_lookup[booking_date]["income"] += row["price"]
+            daily_lookup[booking_date]["bookings"] += 1
+        option_key = booking_option_for_hours(row["duration_hours"])
+        option_lookup[option_key]["income"] += row["price"]
+        option_lookup[option_key]["bookings"] += 1
+
+    return {
+        "weeklyIncomeByOption": list(option_lookup.values()),
+        "dailyIncome": [daily_lookup[date.isoformat()] for date in dates],
+    }
 
 
 def get_prices(conn):
@@ -299,18 +528,35 @@ def get_summary(conn):
     total_bookings = conn.execute("SELECT COUNT(*) FROM bookings").fetchone()[0]
     revenue = conn.execute("SELECT COALESCE(SUM(price), 0) FROM bookings").fetchone()[0]
     issues = conn.execute("SELECT COUNT(*) FROM issues WHERE status = 'Open'").fetchone()[0]
+    high_priority_issues = conn.execute(
+        "SELECT COUNT(*) FROM issues WHERE status = 'Open' AND priority = 'High'"
+    ).fetchone()[0]
     return {
         "availableScooters": available,
         "activeBookings": active,
         "totalBookings": total_bookings,
         "totalRevenue": revenue,
         "openIssues": issues,
+        "highPriorityIssues": high_priority_issues,
         "fleetAvailability": round((available / total) * 100) if total else 0,
     }
 
 
 def build_state(conn):
-    users = rows_to_dicts(conn.execute("SELECT code, role, name, email FROM users ORDER BY id").fetchall())
+    users = [
+        {
+            "id": row["code"],
+            "role": row["role"],
+            "name": row["name"],
+            "email": row["email"],
+            "accountType": row["account_type"],
+            "hasSavedCard": bool(row["card_last4"]),
+            "savedCardLabel": f"{row['card_brand']} ending {row['card_last4']}" if row["card_last4"] else "",
+        }
+        for row in conn.execute(
+            "SELECT code, role, name, email, account_type, card_brand, card_last4 FROM users ORDER BY id"
+        ).fetchall()
+    ]
     scooters = [
         {
             "id": row["code"],
@@ -361,6 +607,15 @@ def build_state(conn):
             "durationHours": row["duration_hours"],
             "price": row["price"],
             "status": row["status"],
+            "paymentStatus": row["payment_status"],
+            "paymentMethod": row["payment_method"],
+            "discountType": row["discount_type"],
+            "discountRate": row["discount_rate"],
+            "confirmationReference": row["confirmation_reference"],
+            "confirmationEmailStatus": row["confirmation_email_status"],
+            "customerEmail": row["customer_email"],
+            "isGuest": bool(row["is_guest"]),
+            "bookingOption": booking_option_for_hours(row["duration_hours"]),
         }
         for row in conn.execute("SELECT * FROM bookings ORDER BY id").fetchall()
     ]
@@ -382,11 +637,18 @@ def build_state(conn):
         "issues": issues,
         "priceMap": get_prices(conn),
         "summary": get_summary(conn),
+        "statistics": build_statistics(conn),
     }
 
 
 def sanitize_user(row):
-    return {"id": row["code"], "role": row["role"], "name": row["name"], "email": row["email"]}
+    return {
+        "id": row["code"],
+        "role": row["role"],
+        "name": row["name"],
+        "email": row["email"],
+        "accountType": row["account_type"] if "account_type" in row.keys() else "standard",
+    }
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -595,10 +857,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.handle_create_booking()
         if parsed.path == "/api/bookings/end":
             return self.handle_end_booking()
+        if parsed.path == "/api/bookings/extend":
+            return self.handle_extend_booking()
         if parsed.path == "/api/bookings/cancel":
             return self.handle_cancel_booking()
+        if parsed.path == "/api/staff/bookings":
+            return self.handle_staff_booking()
         if parsed.path == "/api/issues":
             return self.handle_create_issue()
+        if parsed.path == "/api/issues/escalate":
+            return self.handle_escalate_issue()
         if parsed.path == "/api/issues/resolve":
             return self.handle_resolve_issue()
         if parsed.path == "/api/prices":
@@ -656,12 +924,15 @@ class Handler(BaseHTTPRequestHandler):
         name = payload.get("name", "").strip()
         email = payload.get("email", "").strip()
         password = payload.get("password", "").strip()
+        account_type = payload.get("accountType", "standard").strip().lower() or "standard"
 
         if role == "manager":
             return self.send_json({"error": "Manager accounts cannot be registered from the public form."}, HTTPStatus.FORBIDDEN)
 
         if not name or not email or not password:
             return self.send_json({"error": "Name, email, and password are required."}, HTTPStatus.BAD_REQUEST)
+        if account_type not in {"standard", "student", "senior"}:
+            return self.send_json({"error": "Please choose a valid account type."}, HTTPStatus.BAD_REQUEST)
 
         prefix = "M" if role == "manager" else "U"
         with connect_db() as conn:
@@ -672,10 +943,10 @@ class Handler(BaseHTTPRequestHandler):
             count = conn.execute("SELECT COUNT(*) FROM users WHERE role = ?", (role,)).fetchone()[0] + 1
             code = f"{prefix}-{count:03d}"
             conn.execute(
-                "INSERT INTO users (code, role, name, email, password) VALUES (?, ?, ?, ?, ?)",
-                (code, role, name, email, password),
+                "INSERT INTO users (code, role, name, email, password, account_type) VALUES (?, ?, ?, ?, ?, ?)",
+                (code, role, name, email, hash_password(password), account_type),
             )
-            user = {"id": code, "role": role, "name": name, "email": email}
+            user = {"id": code, "role": role, "name": name, "email": email, "accountType": account_type}
             self.send_json({"user": user})
 
     def handle_login(self):
@@ -689,11 +960,11 @@ class Handler(BaseHTTPRequestHandler):
 
         with connect_db() as conn:
             row = conn.execute(
-                "SELECT code, role, name, email, password FROM users WHERE email = ? AND role = ?",
+                "SELECT code, role, name, email, password, account_type FROM users WHERE email = ? AND role = ?",
                 (email, role),
             ).fetchone()
 
-        if not row or row["password"] != password:
+        if not row or not verify_password(password, row["password"]):
             return self.send_json({"error": "Invalid email, password, or role."}, HTTPStatus.UNAUTHORIZED)
 
         user = sanitize_user(row)
@@ -706,6 +977,40 @@ class Handler(BaseHTTPRequestHandler):
         if token:
             SESSIONS.pop(token, None)
         self.send_json({"message": "Logged out."})
+
+    def resolve_payment(self, conn, user_row, payload, allow_card_save=True):
+        payment = payload.get("payment", {}) or {}
+        use_saved_card = bool(payment.get("useSavedCard"))
+        if use_saved_card:
+            if not user_row or not user_row["card_last4"]:
+                raise ValueError("No saved card is available for this account.")
+            return {
+                "payment_status": "Paid",
+                "payment_method": f"{user_row['card_brand']} ending {user_row['card_last4']}",
+            }
+
+        cardholder = payment.get("cardholderName", "").strip()
+        card_number = "".join(ch for ch in str(payment.get("cardNumber", "")) if ch.isdigit())
+        expiry = str(payment.get("expiry", "")).strip()
+        cvv = "".join(ch for ch in str(payment.get("cvv", "")) if ch.isdigit())
+
+        if len(card_number) < 12 or len(cvv) < 3 or not cardholder or not expiry:
+            raise ValueError("Please provide valid simulated card payment details.")
+
+        brand = infer_card_brand(card_number)
+        if user_row and allow_card_save and payment.get("saveCard"):
+            conn.execute(
+                """
+                UPDATE users
+                SET card_brand = ?, card_last4 = ?, card_token = ?
+                WHERE code = ?
+                """,
+                (brand, card_number[-4:], tokenize_card(card_number), user_row["code"]),
+            )
+        return {
+            "payment_status": "Paid",
+            "payment_method": f"{brand} ending {card_number[-4:]}",
+        }
 
     def handle_create_booking(self):
         user = self.require_session()
@@ -720,6 +1025,10 @@ class Handler(BaseHTTPRequestHandler):
         customer = user["name"]
 
         with connect_db() as conn:
+            user_row = conn.execute(
+                "SELECT code, name, email, account_type, card_brand, card_last4, card_token FROM users WHERE code = ?",
+                (user["id"],),
+            ).fetchone()
             scooter = conn.execute(
                 "SELECT code, available, hourly_price, latitude, longitude, battery FROM scooters WHERE code = ?",
                 (scooter_id,),
@@ -746,16 +1055,30 @@ class Handler(BaseHTTPRequestHandler):
 
             if duration_hours <= 0:
                 return self.send_json({"error": "Invalid booking duration."}, HTTPStatus.BAD_REQUEST)
-            booking_price = scooter["hourly_price"] * duration_hours
+            payment_data = None
+            try:
+                payment_data = self.resolve_payment(conn, user_row, payload)
+            except ValueError as error:
+                return self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+            discount_type, discount_rate = calculate_discount(conn, customer, user_row["account_type"], duration_hours)
+            base_price = scooter["hourly_price"] * duration_hours
+            booking_price = max(1, round(base_price * (1 - discount_rate)))
 
             conn.execute("UPDATE scooters SET available = 0 WHERE code = ?", (scooter_id,))
-            conn.execute(
+            cursor = conn.execute(
                 """
-                INSERT INTO bookings (customer_name, scooter_code, start_time, end_time, start_latitude, start_longitude, start_battery, duration_hours, price, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO bookings (
+                    customer_name, customer_email, is_guest, scooter_code, start_time, end_time,
+                    start_latitude, start_longitude, start_battery, duration_hours, price, status,
+                    payment_status, payment_method, discount_type, discount_rate, confirmation_email_status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     customer,
+                    user_row["email"],
+                    0,
                     scooter_id,
                     start_time,
                     end_time,
@@ -765,9 +1088,28 @@ class Handler(BaseHTTPRequestHandler):
                     duration_hours,
                     booking_price,
                     "Active",
+                    payment_data["payment_status"],
+                    payment_data["payment_method"],
+                    discount_type,
+                    discount_rate,
+                    "Pending",
                 ),
             )
-            self.send_json({"message": f"Booking created for {customer}.", "state": build_state(conn)})
+            reference = send_confirmation_email(
+                conn,
+                cursor.lastrowid,
+                user_row["email"],
+                scooter_id,
+                start_time,
+                end_time,
+                booking_price,
+            )
+            self.send_json(
+                {
+                    "message": f"Booking created for {customer}. Confirmation email sent with reference {reference}.",
+                    "state": build_state(conn),
+                }
+            )
 
     def handle_end_booking(self):
         user = self.require_session()
@@ -794,6 +1136,56 @@ class Handler(BaseHTTPRequestHandler):
             conn.execute("UPDATE scooters SET available = 1 WHERE code = ?", (booking["scooter_code"],))
             self.send_json({"message": f"Booking for {booking['customer_name']} has been ended.", "state": build_state(conn)})
 
+    def handle_extend_booking(self):
+        user = self.require_session()
+        if not user:
+            return
+
+        payload = self.read_json()
+        booking_id = int(payload.get("bookingId", -1))
+        additional_hours = int(payload.get("additionalHours", 0))
+        if additional_hours <= 0:
+            return self.send_json({"error": "Additional booking hours must be greater than zero."}, HTTPStatus.BAD_REQUEST)
+
+        with connect_db() as conn:
+            booking = conn.execute(
+                """
+                SELECT id, scooter_code, status, customer_name, end_time, duration_hours, price, discount_rate
+                FROM bookings
+                WHERE id = ?
+                """,
+                (booking_id,),
+            ).fetchone()
+            if not booking or booking["status"] != "Active":
+                return self.send_json({"error": "Only active bookings can be extended."}, HTTPStatus.BAD_REQUEST)
+            if user["role"] != "manager" and booking["customer_name"] != user["name"]:
+                return self.send_json({"error": "You can only extend your own booking."}, HTTPStatus.FORBIDDEN)
+
+            scooter = conn.execute(
+                "SELECT hourly_price FROM scooters WHERE code = ?",
+                (booking["scooter_code"],),
+            ).fetchone()
+            if not scooter:
+                return self.send_json({"error": "Scooter not found for this booking."}, HTTPStatus.NOT_FOUND)
+
+            current_end = parse_iso_minute(booking["end_time"]) or datetime.now().replace(second=0, microsecond=0)
+            new_end = current_end + timedelta(hours=additional_hours)
+            extra_price = max(1, round(scooter["hourly_price"] * additional_hours * (1 - booking["discount_rate"])))
+            conn.execute(
+                """
+                UPDATE bookings
+                SET end_time = ?, duration_hours = duration_hours + ?, price = price + ?
+                WHERE id = ?
+                """,
+                (format_iso_minute(new_end), additional_hours, extra_price, booking_id),
+            )
+            self.send_json(
+                {
+                    "message": f"Booking extended by {additional_hours} hour(s).",
+                    "state": build_state(conn),
+                }
+            )
+
     def handle_cancel_booking(self):
         if not self.require_manager():
             return
@@ -818,6 +1210,89 @@ class Handler(BaseHTTPRequestHandler):
             conn.execute("UPDATE scooters SET available = 1 WHERE code = ?", (booking["scooter_code"],))
             self.send_json({"message": f"Booking for {booking['customer_name']} has been cancelled.", "state": build_state(conn)})
 
+    def handle_staff_booking(self):
+        if not self.require_manager():
+            return
+
+        payload = self.read_json()
+        guest_name = payload.get("guestName", "").strip()
+        guest_email = payload.get("guestEmail", "").strip()
+        scooter_id = payload.get("scooterId", "").strip()
+        start_time = payload.get("startTime")
+        end_time = payload.get("endTime")
+        if not guest_name or not guest_email or not scooter_id or not start_time or not end_time:
+            return self.send_json({"error": "Guest name, email, scooter, and booking time range are required."}, HTTPStatus.BAD_REQUEST)
+
+        with connect_db() as conn:
+            scooter = conn.execute(
+                "SELECT code, available, hourly_price, latitude, longitude, battery FROM scooters WHERE code = ?",
+                (scooter_id,),
+            ).fetchone()
+            if not scooter or not scooter["available"]:
+                return self.send_json({"error": "Please choose an available scooter."}, HTTPStatus.BAD_REQUEST)
+
+            try:
+                start_dt = datetime.fromisoformat(start_time)
+                end_dt = datetime.fromisoformat(end_time)
+                seconds = (end_dt - start_dt).total_seconds()
+                if seconds <= 0:
+                    raise ValueError
+                duration_hours = max(1, math.ceil(seconds / 3600))
+            except (TypeError, ValueError):
+                return self.send_json({"error": "Please provide a valid booking time range."}, HTTPStatus.BAD_REQUEST)
+
+            try:
+                payment_data = self.resolve_payment(conn, None, payload, allow_card_save=False)
+            except ValueError as error:
+                return self.send_json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+
+            booking_price = scooter["hourly_price"] * duration_hours
+            conn.execute("UPDATE scooters SET available = 0 WHERE code = ?", (scooter_id,))
+            cursor = conn.execute(
+                """
+                INSERT INTO bookings (
+                    customer_name, customer_email, is_guest, scooter_code, start_time, end_time,
+                    start_latitude, start_longitude, start_battery, duration_hours, price, status,
+                    payment_status, payment_method, discount_type, discount_rate, confirmation_email_status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    guest_name,
+                    guest_email,
+                    1,
+                    scooter_id,
+                    start_dt.isoformat(timespec="minutes"),
+                    end_dt.isoformat(timespec="minutes"),
+                    scooter["latitude"],
+                    scooter["longitude"],
+                    scooter["battery"],
+                    duration_hours,
+                    booking_price,
+                    "Active",
+                    payment_data["payment_status"],
+                    payment_data["payment_method"],
+                    "None",
+                    0,
+                    "Pending",
+                ),
+            )
+            reference = send_confirmation_email(
+                conn,
+                cursor.lastrowid,
+                guest_email,
+                scooter_id,
+                start_dt.isoformat(timespec="minutes"),
+                end_dt.isoformat(timespec="minutes"),
+                booking_price,
+            )
+            self.send_json(
+                {
+                    "message": f"Walk-in booking created for {guest_name}. Confirmation email sent with reference {reference}.",
+                    "state": build_state(conn),
+                }
+            )
+
     def handle_create_issue(self):
         user = self.require_session()
         if not user:
@@ -829,13 +1304,35 @@ class Handler(BaseHTTPRequestHandler):
         if not scooter_id or not description:
             return self.send_json({"error": "Issue description is required."}, HTTPStatus.BAD_REQUEST)
 
-        priority = "High" if "brake" in description.lower() else "Medium"
+        priority = infer_issue_priority(description)
         with connect_db() as conn:
             conn.execute(
                 "INSERT INTO issues (scooter_code, description, priority, status) VALUES (?, ?, ?, ?)",
                 (scooter_id, description, priority, "Open"),
             )
             self.send_json({"message": "Issue submitted.", "state": build_state(conn)})
+
+    def handle_escalate_issue(self):
+        if not self.require_manager():
+            return
+
+        payload = self.read_json()
+        issue_id = int(payload.get("issueId", -1))
+
+        with connect_db() as conn:
+            issue = conn.execute(
+                "SELECT id, status, priority FROM issues WHERE id = ?",
+                (issue_id,),
+            ).fetchone()
+            if not issue:
+                return self.send_json({"error": "Issue not found."}, HTTPStatus.BAD_REQUEST)
+            if issue["status"] == "Resolved":
+                return self.send_json({"error": "Resolved issues cannot be escalated."}, HTTPStatus.BAD_REQUEST)
+            if issue["priority"] == "High":
+                return self.send_json({"error": "Issue is already high priority."}, HTTPStatus.BAD_REQUEST)
+
+            conn.execute("UPDATE issues SET priority = 'High' WHERE id = ?", (issue_id,))
+            self.send_json({"message": "Issue escalated to high priority.", "state": build_state(conn)})
 
     def handle_resolve_issue(self):
         if not self.require_manager():

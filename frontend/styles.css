@@ -33,6 +33,17 @@ textarea {
   font: inherit;
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.tab:focus-visible,
+.switch-pill:focus-visible,
+.button:focus-visible {
+  outline: 3px solid rgba(14, 118, 110, 0.34);
+  outline-offset: 3px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -142,6 +153,17 @@ textarea {
   min-height: 22px;
   color: var(--muted);
   font-weight: 600;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.checkbox-row input {
+  width: auto;
 }
 
 .switch-row {
@@ -325,6 +347,10 @@ textarea {
   margin: 0;
 }
 
+.card__header h3 {
+  margin: 0;
+}
+
 .stack,
 .list {
   display: grid;
@@ -404,6 +430,15 @@ textarea {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+}
+
+.booking-entry__meta {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 0.94rem;
 }
 
 .booking-entry__route {
@@ -616,6 +651,52 @@ textarea {
   color: var(--muted);
 }
 
+.payment-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--line);
+}
+
+.chart-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.chart-row {
+  display: grid;
+  gap: 8px;
+}
+
+.chart-row__label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chart-row__track {
+  width: 100%;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(216, 204, 186, 0.42);
+  overflow: hidden;
+}
+
+.chart-row__bar {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.chart-row__bar--accent {
+  background: linear-gradient(90deg, var(--accent), #2fb3ab);
+}
+
+.chart-row__bar--warm {
+  background: linear-gradient(90deg, var(--warm), #f2c068);
+}
+
 .map-legend__dot {
   flex: 0 0 auto;
   width: 14px;
@@ -692,5 +773,24 @@ textarea {
   .list > div {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .user-entry__summary,
+  .chart-row__label,
+  .booking-entry__summary {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+
+  .button,
+  .tab,
+  .switch-pill {
+    transition: none;
   }
 }
