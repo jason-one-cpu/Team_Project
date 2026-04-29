@@ -85,15 +85,21 @@ The system is expected to include:
 - Design notes, sprint plans, outcomes, and meeting records are documented in the project wiki and repository docs.
 - Team members discuss progress in regular sprint meetings and record decisions clearly.
 
-## Status
+## Current Status
 
-This repository now begins Sprint 2 front-end implementation with a customer view, fleet view, and manager dashboard prototype.
+This repository now contains the completed Sprint 4 project version.
 
-The current Sprint 2 codebase also includes:
+The current system includes:
 
 - a SQLite-backed backend in `backend/server.py`
-- customer authentication with password validation and session handling
-- booking and issue APIs
+- customer registration and login
+- secure password handling with hashed storage
+- map-based store and scooter browsing
+- simulated card payment and saved card reuse
+- booking confirmation records and email logs
+- booking history with route tracking
+- issue reporting and high-priority issue handling
+- manager tools for stores, scooters, users, issues, and statistics
 - automated backend tests in `tests/test_server.py`
 
 ## Requirements
@@ -123,3 +129,16 @@ http://127.0.0.1:8000
 ```powershell
 python -m unittest discover -s tests -v
 ```
+
+## Supporting Documentation
+
+The project also includes supporting documentation in the `docs` folder for:
+
+- sprint planning and outcomes
+- task allocation
+- meeting records
+- final backlog checklist
+- data modelling
+- testing process and evidence
+- user manual
+- team reflection notes
