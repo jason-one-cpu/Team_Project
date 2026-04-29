@@ -95,6 +95,16 @@ class CityHopServerTests(unittest.TestCase):
         self.assertIn("sessionToken", payload)
         return payload["sessionToken"]
 
+    def sample_payment(self, save_card=False):
+        return {
+            "useSavedCard": False,
+            "cardholderName": "Test User",
+            "cardNumber": "4111111111111111",
+            "expiry": "12/29",
+            "cvv": "123",
+            "saveCard": save_card,
+        }
+
     def test_register_customer_account(self):
         status, payload = self.request(
             "/api/register",
@@ -102,6 +112,7 @@ class CityHopServerTests(unittest.TestCase):
             body={
                 "role": "customer",
                 "name": "Sprint Tester",
+                "accountType": "student",
                 "email": "tester@example.com",
                 "password": "secret123",
             },
@@ -110,6 +121,22 @@ class CityHopServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["user"]["name"], "Sprint Tester")
         self.assertEqual(payload["user"]["role"], "customer")
+        self.assertEqual(payload["user"]["accountType"], "student")
+
+    def test_manager_registration_is_forbidden(self):
+        status, payload = self.request(
+            "/api/register",
+            method="POST",
+            body={
+                "role": "manager",
+                "name": "Not Allowed",
+                "email": "manager@example.com",
+                "password": "secret123",
+            },
+        )
+
+        self.assertEqual(status, 403)
+        self.assertIn("cannot be registered", payload["error"])
 
     def test_login_requires_correct_password(self):
         status, payload = self.request(
@@ -154,7 +181,7 @@ class CityHopServerTests(unittest.TestCase):
             "/api/bookings",
             method="POST",
             token=token,
-            body={"scooterId": "SC-101", "durationHours": 1},
+            body={"scooterId": "SC-101", "durationHours": 1, "payment": self.sample_payment(save_card=True)},
         )
 
         self.assertEqual(status, 200)
@@ -163,6 +190,9 @@ class CityHopServerTests(unittest.TestCase):
         self.assertIsNotNone(created)
         self.assertEqual(created["status"], "Active")
         self.assertEqual(created["price"], 4)
+        self.assertEqual(created["paymentStatus"], "Paid")
+        self.assertEqual(created["confirmationEmailStatus"], "Sent")
+        self.assertEqual(created["discountType"], "None")
 
     def test_customer_can_end_own_booking(self):
         token = self.login_demo_customer()
@@ -170,7 +200,7 @@ class CityHopServerTests(unittest.TestCase):
             "/api/bookings",
             method="POST",
             token=token,
-            body={"scooterId": "SC-101", "durationHours": 1},
+            body={"scooterId": "SC-101", "durationHours": 1, "payment": self.sample_payment()},
         )
         self.assertEqual(create_status, 200)
         active = next(
@@ -195,7 +225,7 @@ class CityHopServerTests(unittest.TestCase):
             "/api/bookings",
             method="POST",
             token=manager_token,
-            body={"scooterId": "SC-101", "durationHours": 1},
+            body={"scooterId": "SC-101", "durationHours": 1, "payment": self.sample_payment()},
         )
         self.assertEqual(create_status, 200)
         active = next(
@@ -301,6 +331,112 @@ class CityHopServerTests(unittest.TestCase):
         newest_issue = payload["state"]["issues"][0]
         self.assertEqual(newest_issue["scooterId"], "SC-101")
         self.assertEqual(newest_issue["priority"], "High")
+
+    def test_manager_can_escalate_issue_to_high_priority(self):
+        customer_token = self.login_demo_customer()
+        create_status, create_payload = self.request(
+            "/api/issues",
+            method="POST",
+            token=customer_token,
+            body={"scooterId": "SC-101", "description": "Handlebar feels loose."},
+        )
+        self.assertEqual(create_status, 200)
+        issue_id = create_payload["state"]["issues"][0]["id"]
+
+        manager_token = self.login_demo_manager()
+        status, payload = self.request(
+            "/api/issues/escalate",
+            method="POST",
+            token=manager_token,
+            body={"issueId": issue_id},
+        )
+
+        self.assertEqual(status, 200)
+        escalated_issue = next(issue for issue in payload["state"]["issues"] if issue["id"] == issue_id)
+        self.assertEqual(escalated_issue["priority"], "High")
+
+    def test_customer_can_extend_own_booking(self):
+        token = self.login_demo_customer()
+        create_status, create_payload = self.request(
+            "/api/bookings",
+            method="POST",
+            token=token,
+            body={"scooterId": "SC-101", "durationHours": 1, "payment": self.sample_payment()},
+        )
+        self.assertEqual(create_status, 200)
+        active = next(
+            booking
+            for booking in reversed(create_payload["state"]["bookings"])
+            if booking["customer"] == "Demo User" and booking["scooterId"] == "SC-101" and booking["status"] == "Active"
+        )
+
+        status, payload = self.request(
+            "/api/bookings/extend",
+            method="POST",
+            token=token,
+            body={"bookingId": active["id"], "additionalHours": 4},
+        )
+
+        self.assertEqual(status, 200)
+        updated_booking = next(booking for booking in payload["state"]["bookings"] if booking["id"] == active["id"])
+        self.assertEqual(updated_booking["durationHours"], 5)
+
+    def test_saved_card_can_be_reused_for_booking(self):
+        token = self.login_demo_customer()
+        first_status, first_payload = self.request(
+            "/api/bookings",
+            method="POST",
+            token=token,
+            body={"scooterId": "SC-101", "durationHours": 1, "payment": self.sample_payment(save_card=True)},
+        )
+        self.assertEqual(first_status, 200)
+        active_booking = next(
+            booking
+            for booking in reversed(first_payload["state"]["bookings"])
+            if booking["customer"] == "Demo User" and booking["scooterId"] == "SC-101" and booking["status"] == "Active"
+        )
+        end_status, _ = self.request(
+            "/api/bookings/end",
+            method="POST",
+            token=token,
+            body={"bookingId": active_booking["id"]},
+        )
+        self.assertEqual(end_status, 200)
+
+        second_status, second_payload = self.request(
+            "/api/bookings",
+            method="POST",
+            token=token,
+            body={"scooterId": "SC-101", "durationHours": 1, "payment": {"useSavedCard": True}},
+        )
+        self.assertEqual(second_status, 200)
+        latest_booking = next(
+            booking
+            for booking in reversed(second_payload["state"]["bookings"])
+            if booking["customer"] == "Demo User" and booking["scooterId"] == "SC-101"
+        )
+        self.assertIn("ending 1111", latest_booking["paymentMethod"])
+
+    def test_manager_can_create_walk_in_booking(self):
+        token = self.login_demo_manager()
+        status, payload = self.request(
+            "/api/staff/bookings",
+            method="POST",
+            token=token,
+            body={
+                "guestName": "Walk In Guest",
+                "guestEmail": "walkin@example.com",
+                "scooterId": "SC-101",
+                "startTime": "2026-04-28T10:00",
+                "endTime": "2026-04-28T14:00",
+                "payment": self.sample_payment(),
+            },
+        )
+
+        self.assertEqual(status, 200)
+        guest_booking = next(booking for booking in payload["state"]["bookings"] if booking["customer"] == "Walk In Guest")
+        self.assertTrue(guest_booking["isGuest"])
+        self.assertEqual(guest_booking["customerEmail"], "walkin@example.com")
 
     def test_nearby_store_generation_creates_new_stores_when_area_is_empty(self):
         token = self.login_demo_customer()
@@ -469,6 +605,27 @@ class CityHopServerTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["route"]), 1)
         self.assertIn("latitude", payload["route"][0])
         self.assertIn("battery", payload["route"][0])
+
+    def test_statistics_include_weekly_option_and_daily_income(self):
+        token = self.login_demo_customer()
+        create_status, _ = self.request(
+            "/api/bookings",
+            method="POST",
+            token=token,
+            body={
+                "scooterId": "SC-101",
+                "startTime": "2026-04-28T09:00",
+                "endTime": "2026-04-28T13:00",
+                "payment": self.sample_payment(),
+            },
+        )
+        self.assertEqual(create_status, 200)
+
+        state_status, state_payload = self.request("/api/state")
+        self.assertEqual(state_status, 200)
+        self.assertEqual(len(state_payload["statistics"]["weeklyIncomeByOption"]), 4)
+        self.assertEqual(len(state_payload["statistics"]["dailyIncome"]), 7)
+        self.assertIn("highPriorityIssues", state_payload["summary"])
 
     def test_static_index_page_is_served(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
