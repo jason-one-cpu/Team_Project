@@ -713,6 +713,41 @@ class CityHopServerTests(unittest.TestCase):
         self.assertEqual(len(generated_store_names), 3)
         self.assertTrue(all(3 <= scooter["hourlyPrice"] <= 8 for scooter in generated))
 
+    def test_nearby_store_generation_does_not_top_up_existing_auto_stores(self):
+        token = self.login_demo_customer()
+        first_status, first_payload = self.request(
+            "/api/stores/ensure-nearby",
+            method="POST",
+            token=token,
+            body={"latitude": 53.0200, "longitude": -1.0800},
+        )
+        self.assertEqual(first_status, 200)
+        self.assertTrue(first_payload["created"])
+        first_auto_stores = {
+            store["name"]: store["scooterCount"]
+            for store in first_payload["state"]["stores"]
+            if store["name"].startswith("Auto Store")
+        }
+        self.assertEqual(len(first_auto_stores), 3)
+
+        second_status, second_payload = self.request(
+            "/api/stores/ensure-nearby",
+            method="POST",
+            token=token,
+            body={"latitude": 54.0000, "longitude": -1.5000},
+        )
+        self.assertEqual(second_status, 200)
+        self.assertTrue(second_payload["created"])
+        second_auto_stores = {
+            store["name"]: store["scooterCount"]
+            for store in second_payload["state"]["stores"]
+            if store["name"].startswith("Auto Store")
+        }
+
+        for store_name, scooter_count in first_auto_stores.items():
+            self.assertEqual(second_auto_stores[store_name], scooter_count)
+        self.assertEqual(len(second_auto_stores), 6)
+
     def test_manager_can_update_individual_scooter_hourly_prices(self):
         token = self.login_demo_manager()
         status, payload = self.request(
@@ -726,6 +761,43 @@ class CityHopServerTests(unittest.TestCase):
         scooters = {scooter["id"]: scooter for scooter in payload["state"]["scooters"]}
         self.assertEqual(scooters["SC-101"]["hourlyPrice"], 7)
         self.assertEqual(scooters["SC-102"]["hourlyPrice"], 9)
+
+    def test_manager_can_store_and_clear_scooter_image(self):
+        token = self.login_demo_manager()
+        image_data = "data:image/png;base64,iVBORw0KGgo="
+        status, payload = self.request(
+            "/api/scooters/image",
+            method="POST",
+            token=token,
+            body={"scooterId": "SC-101", "imageData": image_data},
+        )
+
+        self.assertEqual(status, 200)
+        scooters = {scooter["id"]: scooter for scooter in payload["state"]["scooters"]}
+        self.assertEqual(scooters["SC-101"]["imageData"], image_data)
+
+        clear_status, clear_payload = self.request(
+            "/api/scooters/image",
+            method="POST",
+            token=token,
+            body={"scooterId": "SC-101", "imageData": ""},
+        )
+
+        self.assertEqual(clear_status, 200)
+        cleared = {scooter["id"]: scooter for scooter in clear_payload["state"]["scooters"]}
+        self.assertIsNone(cleared["SC-101"]["imageData"])
+
+    def test_customer_cannot_update_scooter_image(self):
+        token = self.login_demo_customer()
+        status, payload = self.request(
+            "/api/scooters/image",
+            method="POST",
+            token=token,
+            body={"scooterId": "SC-101", "imageData": "data:image/png;base64,iVBORw0KGgo="},
+        )
+
+        self.assertEqual(status, 403)
+        self.assertIn("Manager access is required", payload["error"])
 
     def test_manager_can_create_store_and_add_scooter(self):
         token = self.login_demo_manager()
@@ -1013,6 +1085,9 @@ class CityHopServerTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertIn("text/html", content_type)
         self.assertIn("<title>CityHop E-Scooter</title>", raw)
+        self.assertIn("Scan QR", raw)
+        self.assertIn("qrcodejs", raw)
+        self.assertIn("jsQR", raw)
 
 
 if __name__ == "__main__":

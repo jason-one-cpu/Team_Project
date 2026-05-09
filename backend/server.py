@@ -60,6 +60,7 @@ def init_db():
                 longitude REAL NOT NULL DEFAULT -1.1500,
                 battery INTEGER NOT NULL,
                 hourly_price INTEGER NOT NULL DEFAULT 4,
+                image_data TEXT,
                 available INTEGER NOT NULL DEFAULT 1
             );
 
@@ -139,6 +140,8 @@ def init_db():
             conn.execute("ALTER TABLE scooters ADD COLUMN longitude REAL NOT NULL DEFAULT -1.1500")
         if "hourly_price" not in scooter_columns:
             conn.execute("ALTER TABLE scooters ADD COLUMN hourly_price INTEGER NOT NULL DEFAULT 4")
+        if "image_data" not in scooter_columns:
+            conn.execute("ALTER TABLE scooters ADD COLUMN image_data TEXT")
 
         booking_columns = [row["name"] for row in conn.execute("PRAGMA table_info(bookings)").fetchall()]
         user_columns = [row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()]
@@ -566,10 +569,11 @@ def build_state(conn):
             "longitude": row["longitude"],
             "battery": row["battery"],
             "hourlyPrice": row["hourly_price"],
+            "imageData": row["image_data"],
             "available": bool(row["available"]),
         }
         for row in conn.execute(
-            "SELECT code, store_id, location, latitude, longitude, battery, hourly_price, available FROM scooters ORDER BY id"
+            "SELECT code, store_id, location, latitude, longitude, battery, hourly_price, image_data, available FROM scooters ORDER BY id"
         ).fetchall()
     ]
     stores = [
@@ -675,7 +679,29 @@ def ensure_nearby_stores(conn, latitude, longitude):
         return False
 
     existing_codes = conn.execute("SELECT code FROM scooters ORDER BY id").fetchall()
-    next_scooter_number = len(existing_codes) + 101
+    scooter_numbers = []
+    for row in existing_codes:
+        code = row["code"]
+        if code.startswith("SC-"):
+            try:
+                scooter_numbers.append(int(code.split("-", 1)[1]))
+            except ValueError:
+                continue
+    next_scooter_number = max(scooter_numbers, default=100) + 1
+
+    existing_store_names = {
+        row["name"]
+        for row in conn.execute("SELECT name FROM stores").fetchall()
+    }
+    auto_store_numbers = []
+    for name in existing_store_names:
+        if name.startswith("Auto Store "):
+            try:
+                auto_store_numbers.append(int(name.rsplit(" ", 1)[1]))
+            except ValueError:
+                continue
+    next_auto_store_number = max(auto_store_numbers, default=0) + 1
+
     offsets = [
         (0.0060, -0.0040),
         (-0.0045, 0.0055),
@@ -683,18 +709,21 @@ def ensure_nearby_stores(conn, latitude, longitude):
     ]
     created_any = False
 
-    for index, (lat_offset, lon_offset) in enumerate(offsets, start=1):
-        store_name = f"Auto Store {index}"
+    for lat_offset, lon_offset in offsets:
+        while True:
+            store_name = f"Auto Store {next_auto_store_number}"
+            next_auto_store_number += 1
+            if store_name not in existing_store_names:
+                existing_store_names.add(store_name)
+                break
+
         store_lat = latitude + lat_offset
         store_lon = longitude + lon_offset
         cursor = conn.execute(
-            "INSERT OR IGNORE INTO stores (name, latitude, longitude) VALUES (?, ?, ?)",
+            "INSERT INTO stores (name, latitude, longitude) VALUES (?, ?, ?)",
             (store_name, round(store_lat, 6), round(store_lon, 6)),
         )
-        if cursor.lastrowid:
-            store_id = cursor.lastrowid
-        else:
-            store_id = conn.execute("SELECT id FROM stores WHERE name = ?", (store_name,)).fetchone()["id"]
+        store_id = cursor.lastrowid
         scooter_count = random.randint(3, 10)
         scooter_rows = []
         for _ in range(scooter_count):
@@ -885,6 +914,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.handle_delete_scooter()
         if parsed.path == "/api/scooters/hourly-prices":
             return self.handle_update_scooter_hourly_prices()
+        if parsed.path == "/api/scooters/image":
+            return self.handle_update_scooter_image()
         self.send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
     def read_json(self):
@@ -1418,6 +1449,38 @@ class Handler(BaseHTTPRequestHandler):
                 normalized,
             )
             self.send_json({"message": "Scooter hourly prices updated.", "state": build_state(conn)})
+
+    def handle_update_scooter_image(self):
+        if not self.require_manager():
+            return
+
+        payload = self.read_json()
+        scooter_code = payload.get("scooterId", "").strip()
+        image_data = payload.get("imageData")
+
+        if not scooter_code:
+            return self.send_json({"error": "Scooter id is required."}, HTTPStatus.BAD_REQUEST)
+        if image_data is not None and not isinstance(image_data, str):
+            return self.send_json({"error": "Invalid scooter image data."}, HTTPStatus.BAD_REQUEST)
+        if image_data and not image_data.startswith("data:image/"):
+            return self.send_json({"error": "Please upload a valid image file."}, HTTPStatus.BAD_REQUEST)
+        if image_data and len(image_data) > 1_500_000:
+            return self.send_json({"error": "Scooter image is still too large after compression. Please try another image."}, HTTPStatus.BAD_REQUEST)
+
+        with connect_db() as conn:
+            scooter = conn.execute(
+                "SELECT code FROM scooters WHERE code = ?",
+                (scooter_code,),
+            ).fetchone()
+            if not scooter:
+                return self.send_json({"error": "Scooter not found."}, HTTPStatus.NOT_FOUND)
+
+            conn.execute(
+                "UPDATE scooters SET image_data = ? WHERE code = ?",
+                (image_data or None, scooter_code),
+            )
+            message = f"Scooter {scooter_code} image updated." if image_data else f"Scooter {scooter_code} image cleared."
+            self.send_json({"message": message, "state": build_state(conn)})
 
     def handle_create_store(self):
         if not self.require_manager():

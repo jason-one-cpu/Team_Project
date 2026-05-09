@@ -106,6 +106,7 @@
         <button class="tab is-active customer-tab" data-page="products">Products</button>
         <button class="tab customer-tab" data-page="booking-history">Booking history</button>
         <button class="tab customer-tab" data-page="issues">Issues</button>
+        <button class="tab customer-tab" data-page="scan">Scan QR</button>
         <button class="tab hidden manager-nav-tab" data-manager-section="store-manager">Store manager</button>
         <button class="tab hidden manager-nav-tab" data-manager-section="scooter-manager">Scooter manager</button>
         <button class="tab hidden manager-nav-tab" data-manager-section="user-manager">User manager</button>
@@ -253,6 +254,29 @@
             <div id="issue-list" class="list"></div>
           </article>
         </div>
+      </section>
+
+      <section class="page" id="scan-page">
+        <article class="card">
+          <div class="card__header card__header--spread">
+            <div>
+              <p class="card__eyebrow">Quick Rent</p>
+              <h2>Scan scooter QR code</h2>
+              <p class="muted">Point your camera at a scooter QR code, or upload a QR image.</p>
+            </div>
+            <button type="button" class="button button--ghost" id="stop-scan-button">Stop scanner</button>
+          </div>
+          <div class="qr-container">
+            <video id="qr-video" autoplay playsinline class="qr-video" aria-label="QR scanner camera preview"></video>
+            <canvas id="qr-canvas" hidden></canvas>
+          </div>
+          <p class="feedback" id="qr-feedback" aria-live="polite">Open this page to start the scanner.</p>
+          <div class="form-actions">
+            <button type="button" class="button button--primary" id="upload-qr-button">Upload QR image</button>
+            <input type="file" id="qr-file-input" accept="image/*" hidden>
+            <button type="button" class="button button--ghost hidden" id="manual-book-button">Enter scooter ID manually</button>
+          </div>
+        </article>
       </section>
 
       <section class="page" id="manager-page">
@@ -482,6 +506,8 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="main.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="main.js?v=20260509-image-refresh"></script>
 </body>
 </html>

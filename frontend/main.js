@@ -5,6 +5,8 @@ const uiState = {
   sessionToken: localStorage.getItem("cityhopSessionToken") || "",
   currentPage: "products",
   currentManagerSection: "store-manager",
+  qrStream: null,
+  isScanning: false,
   selectedManagerStoreId: null,
   expandedManagerUserId: "",
   selectedScooterId: "",
@@ -195,6 +197,10 @@ function setRole(role) {
 }
 
 function setPage(pageId) {
+  if (pageId !== "scan" && uiState.isScanning) {
+    stopQrScanner();
+  }
+
   uiState.currentPage = pageId;
   tabs.forEach((tab) => {
     tab.classList.toggle("is-active", tab.dataset.page === pageId);
@@ -209,6 +215,10 @@ function setPage(pageId) {
       scooterMap.setView([currentMapCenter.lat, currentMapCenter.lng], currentMapCenter.zoom || 17);
       requestUserLocation();
     }, 80);
+  }
+
+  if (pageId === "scan") {
+    startQrScanner();
   }
 }
 
@@ -251,6 +261,7 @@ function enterApp(user) {
 }
 
 async function logout() {
+  stopQrScanner();
   try {
     await api("/api/logout", { method: "POST", body: JSON.stringify({}) });
   } catch (error) {
@@ -323,6 +334,37 @@ function syncGuestBookingDefaults() {
 
 function getSelectedScooter() {
   return uiState.data.scooters.find((scooter) => scooter.id === uiState.selectedScooterId) || null;
+}
+
+function scooterVariant(scooterId = "") {
+  const digits = scooterId.replace(/\D/g, "");
+  const number = Number(digits || 0);
+  return (number % 4) + 1;
+}
+
+function scooterImageMarkup(scooter, size = "compact") {
+  const variant = scooterVariant(scooter?.id);
+  const label = scooter?.id || "Scooter";
+  if (scooter?.imageData) {
+    return `
+      <div class="scooter-photo scooter-photo--${size}" role="img" aria-label="${label} uploaded scooter photo">
+        <img src="${scooter.imageData}" alt="${label} scooter">
+        <span>${scooter?.battery ?? "--"}%</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="scooter-art scooter-art--${size} scooter-art--variant-${variant}" role="img" aria-label="${label} scooter illustration">
+      <div class="scooter-art__halo"></div>
+      <div class="scooter-art__stem"></div>
+      <div class="scooter-art__handle"></div>
+      <div class="scooter-art__deck"></div>
+      <div class="scooter-art__wheel scooter-art__wheel--front"></div>
+      <div class="scooter-art__wheel scooter-art__wheel--back"></div>
+      <div class="scooter-art__battery">${scooter?.battery ?? "--"}%</div>
+    </div>
+  `;
 }
 
 function formatDateTimeLocalValue(date) {
@@ -430,6 +472,7 @@ function renderBookingFormDetails() {
   }
 
   details.innerHTML = `
+    ${scooterImageMarkup(scooter, "large")}
     <div><span>${scooter.id}</span><strong>${scooter.location} - GBP ${scooter.hourlyPrice}/hour</strong></div>
     <div><span>Pickup store</span><strong>${scooter.location}</strong></div>
     <div><span>Battery</span><strong>${scooter.battery}%</strong></div>
@@ -667,10 +710,12 @@ function renderStoreLegend() {
           (scooter) => `
             <div class="map-legend__item">
               <span class="map-legend__dot map-legend__dot--available"></span>
+              ${scooterImageMarkup(scooter)}
               <div>
                 <strong>${scooter.id}</strong>
                 <small>Battery ${scooter.battery}% - GBP ${scooter.hourlyPrice}/hour</small>
               </div>
+              <button type="button" class="qr-thumb" data-qr-code="${scooter.id}" aria-label="QR code for ${scooter.id}"></button>
               <button type="button" class="button button--primary store-book-button" data-scooter-id="${scooter.id}">Book</button>
             </div>
           `
@@ -700,6 +745,8 @@ function renderStoreLegend() {
       setPage("book");
     });
   });
+
+  renderQrCodes();
 }
 
 function showUserLocation(lat, lng, message = "Your current location has been added to the map.") {
@@ -838,18 +885,21 @@ function renderManagerStoreOptions() {
     return;
   }
 
+  const previousStoreId = uiState.selectedManagerStoreId ? String(uiState.selectedManagerStoreId) : select.value;
   select.innerHTML = uiState.data.stores
     .map((store) => `<option value="${store.id}">${store.name} (${store.availableCount}/${store.scooterCount} available)</option>`)
     .join("");
-  if (uiState.data.stores.length) {
-    if (!select.value) {
-      select.value = String(uiState.data.stores[0].id);
-    }
-    const selectedStoreId = Number(select.value);
-    if (!uiState.data.stores.some((store) => store.id === selectedStoreId)) {
-      select.value = String(uiState.data.stores[0].id);
-    }
+
+  if (!uiState.data.stores.length) {
+    uiState.selectedManagerStoreId = null;
+    return;
   }
+
+  const optionValues = new Set(uiState.data.stores.map((store) => String(store.id)));
+  select.value = previousStoreId && optionValues.has(previousStoreId)
+    ? previousStoreId
+    : String(uiState.data.stores[0].id);
+  uiState.selectedManagerStoreId = Number(select.value);
 }
 
 function renderManagerStoreInventory() {
@@ -858,11 +908,17 @@ function renderManagerStoreInventory() {
     return;
   }
 
-  const selectedStoreId = Number(document.getElementById("manager-store-select")?.value || 0);
+  const storeSelect = document.getElementById("manager-store-select");
+  const selectedStoreId = Number(storeSelect?.value || uiState.selectedManagerStoreId || 0);
   const store = uiState.data.stores.find((item) => item.id === selectedStoreId) || uiState.data.stores[0];
   if (!store) {
     container.innerHTML = "<div><span>No stores yet</span><strong>Create the first store on the map.</strong></div>";
     return;
+  }
+
+  uiState.selectedManagerStoreId = store.id;
+  if (storeSelect) {
+    storeSelect.value = String(store.id);
   }
 
   const scooters = uiState.data.scooters.filter((scooter) => scooter.storeId === store.id);
@@ -870,10 +926,23 @@ function renderManagerStoreInventory() {
     .map(
       (scooter) => `
         <div>
-          <span>${scooter.id} / ${scooter.battery}% battery / ${scooter.available ? "Available" : "Booked"}</span>
+          <div class="manager-scooter-media">
+            ${scooterImageMarkup(scooter)}
+            <div>
+              <span>${scooter.id} / ${scooter.battery}% battery / ${scooter.available ? "Available" : "Booked"}</span>
+              <small>${scooter.imageData ? "Custom image stored in SQLite" : "Using generated scooter image"}</small>
+            </div>
+          </div>
+          <div class="manager-scooter-qr">
+            <button type="button" class="qr-thumb" data-qr-code="${scooter.id}" aria-label="QR code for ${scooter.id}"></button>
+            <small>QR for scan-to-book demo</small>
+          </div>
           <div class="fleet__actions">
             <input type="number" min="1" value="${scooter.hourlyPrice}" class="manager-price-input" data-scooter-id="${scooter.id}">
             <button type="button" class="button button--ghost manager-save-price-button" data-scooter-id="${scooter.id}">Save price</button>
+            <button type="button" class="button button--ghost manager-upload-image-button" data-scooter-id="${scooter.id}">Upload image</button>
+            <button type="button" class="button button--ghost manager-clear-image-button" data-scooter-id="${scooter.id}">Use generated image</button>
+            <input type="file" class="manager-image-input hidden" data-scooter-id="${scooter.id}" accept="image/*">
             <button type="button" class="button button--danger manager-delete-scooter-button" data-scooter-id="${scooter.id}">Delete</button>
           </div>
         </div>
@@ -913,6 +982,31 @@ function renderManagerStoreInventory() {
       }
     });
   });
+
+  document.querySelectorAll(".manager-upload-image-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelector(`.manager-image-input[data-scooter-id="${button.dataset.scooterId}"]`)?.click();
+    });
+  });
+
+  document.querySelectorAll(".manager-image-input").forEach((input) => {
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (!file) {
+        return;
+      }
+      uploadScooterImage(input.dataset.scooterId, file);
+      input.value = "";
+    });
+  });
+
+  document.querySelectorAll(".manager-clear-image-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      saveScooterImage(button.dataset.scooterId, "");
+    });
+  });
+
+  renderQrCodes();
 }
 
 function renderManagerStoreMap() {
@@ -1607,7 +1701,8 @@ if (managerScooterForm) {
   });
 }
 
-document.getElementById("manager-store-select")?.addEventListener("change", () => {
+document.getElementById("manager-store-select")?.addEventListener("change", (event) => {
+  uiState.selectedManagerStoreId = Number(event.target.value) || null;
   renderManagerStoreInventory();
 });
 
@@ -1617,6 +1712,66 @@ document.getElementById("guest-store-select")?.addEventListener("change", () => 
 
 document.getElementById("use-saved-card")?.addEventListener("change", () => {
   updatePaymentFieldVisibility();
+});
+
+document.getElementById("manual-book-button")?.addEventListener("click", () => {
+  const scooterId = window.prompt("Enter scooter ID, for example SC-101:");
+  if (!scooterId) {
+    return;
+  }
+
+  handleScannedScooterCode(scooterId);
+});
+
+document.getElementById("stop-scan-button")?.addEventListener("click", () => {
+  stopQrScanner();
+  document.getElementById("qr-feedback").textContent = "Scanner stopped.";
+  setPage("products");
+});
+
+document.getElementById("upload-qr-button")?.addEventListener("click", () => {
+  document.getElementById("qr-file-input")?.click();
+});
+
+document.getElementById("qr-file-input")?.addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+  if (!file) {
+    return;
+  }
+
+  const feedback = document.getElementById("qr-feedback");
+  stopQrScanner();
+
+  if (!window.jsQR) {
+    feedback.textContent = "QR reader is not available. Please enter the scooter ID manually.";
+    document.getElementById("manual-book-button")?.classList.remove("hidden");
+    event.target.value = "";
+    return;
+  }
+
+  feedback.textContent = "Reading QR code from image.";
+  const reader = new FileReader();
+  reader.onload = () => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.getElementById("qr-canvas");
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      canvas.width = image.width;
+      canvas.height = image.height;
+      context.drawImage(image, 0, 0, image.width, image.height);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const code = window.jsQR(imageData.data, canvas.width, canvas.height);
+      if (code) {
+        handleScannedScooterCode(code.data);
+      } else {
+        feedback.textContent = "No QR code was detected in this image.";
+        document.getElementById("manual-book-button")?.classList.remove("hidden");
+      }
+    };
+    image.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+  event.target.value = "";
 });
 
 document.getElementById("guest-booking-form")?.addEventListener("submit", async (event) => {
@@ -1653,6 +1808,271 @@ logoutButton.addEventListener("click", () => {
 backToProductsButton.addEventListener("click", () => setPage("products"));
 document.getElementById("booking-start-time").addEventListener("input", () => renderBookingEstimate());
 document.getElementById("booking-end-time").addEventListener("input", () => renderBookingEstimate());
+
+async function uploadScooterImage(scooterId, file) {
+  if (!file.type.startsWith("image/")) {
+    document.getElementById("manager-scooter-feedback").textContent = "Please upload an image file.";
+    return;
+  }
+
+  const feedback = document.getElementById("manager-scooter-feedback");
+  feedback.textContent = file.size > 1_000_000
+    ? "Compressing image before upload..."
+    : "Uploading scooter image...";
+
+  try {
+    const imageData = await prepareScooterImage(file);
+    await saveScooterImage(scooterId, imageData);
+  } catch (error) {
+    feedback.textContent = error.message;
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not read the image file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not process the image file."));
+    image.src = dataUrl;
+  });
+}
+
+function canvasToDataUrl(canvas, mimeType, quality) {
+  return canvas.toDataURL(mimeType, quality);
+}
+
+async function prepareScooterImage(file) {
+  const maxBytes = 1_000_000;
+  const originalDataUrl = await readFileAsDataUrl(file);
+  if (originalDataUrl.length <= maxBytes * 1.34) {
+    return originalDataUrl;
+  }
+
+  const image = await loadImageFromDataUrl(originalDataUrl);
+  let maxDimension = 1200;
+  let quality = 0.86;
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0, width, height);
+
+    const compressed = canvasToDataUrl(canvas, "image/jpeg", quality);
+    if (compressed.length <= maxBytes * 1.34) {
+      return compressed;
+    }
+
+    quality = Math.max(0.45, quality - 0.08);
+    maxDimension = Math.max(520, Math.round(maxDimension * 0.82));
+  }
+
+  throw new Error("Could not compress this image below 1 MB. Please try a smaller image.");
+}
+
+async function saveScooterImage(scooterId, imageData) {
+  try {
+    const existingScooter = uiState.data.scooters.find((scooter) => scooter.id === scooterId);
+    if (existingScooter?.storeId) {
+      uiState.selectedManagerStoreId = existingScooter.storeId;
+    }
+
+    const result = await api("/api/scooters/image", {
+      method: "POST",
+      body: JSON.stringify({ scooterId, imageData })
+    });
+
+    uiState.data = result.state;
+    const updatedScooter = uiState.data.scooters.find((scooter) => scooter.id === scooterId);
+    if (updatedScooter?.storeId) {
+      uiState.selectedManagerStoreId = updatedScooter.storeId;
+    }
+
+    renderAll();
+    document.getElementById("manager-scooter-feedback").textContent = `${result.message} The scooter list has been refreshed.`;
+  } catch (error) {
+    document.getElementById("manager-scooter-feedback").textContent = error.message;
+  }
+}
+
+function renderQrCodes() {
+  document.querySelectorAll("[data-qr-code]").forEach((element) => {
+    if (element.dataset.qrRendered === "true") {
+      return;
+    }
+
+    const scooterId = element.dataset.qrCode;
+    element.textContent = "";
+    element.dataset.qrRendered = "true";
+
+    if (!window.QRCode) {
+      element.textContent = "QR";
+      element.title = `QR for ${scooterId}`;
+      return;
+    }
+
+    new window.QRCode(element, {
+      text: scooterId,
+      width: 48,
+      height: 48,
+      colorDark: "#0f766e",
+      colorLight: "#ffffff",
+      correctLevel: window.QRCode.CorrectLevel.M
+    });
+
+    element.addEventListener("click", () => {
+      const qrWindow = window.open("", "_blank", "width=420,height=520");
+      if (!qrWindow) {
+        return;
+      }
+      qrWindow.document.write(`
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <title>${scooterId} QR code</title>
+            <style>
+              body { font-family: Arial, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; background: #f8f3eb; color: #1f2937; }
+              .card { background: #fffaf3; border: 1px solid #d8c2a6; border-radius: 24px; padding: 32px; text-align: center; box-shadow: 0 20px 50px rgba(31, 41, 55, 0.12); }
+              #large-qr { display: inline-block; padding: 16px; background: #fff; border-radius: 18px; }
+              h1 { margin: 0 0 18px; font-size: 28px; }
+              p { color: #64748b; }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <h1>${scooterId}</h1>
+              <div id="large-qr"></div>
+              <p>Print or show this QR code for scan-to-book.</p>
+            </div>
+            <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+            <script>
+              new QRCode(document.getElementById("large-qr"), {
+                text: "${scooterId}",
+                width: 256,
+                height: 256
+              });
+            <\/script>
+          </body>
+        </html>
+      `);
+      qrWindow.document.close();
+    });
+  });
+}
+
+function handleScannedScooterCode(rawCode) {
+  const feedback = document.getElementById("qr-feedback");
+  const scooterId = String(rawCode || "").trim().toUpperCase();
+  if (!/^SC-\d+$/.test(scooterId)) {
+    feedback.textContent = "QR code does not contain a valid scooter ID.";
+    document.getElementById("manual-book-button")?.classList.remove("hidden");
+    return;
+  }
+
+  const scooter = uiState.data.scooters.find((item) => item.id === scooterId);
+  if (!scooter) {
+    feedback.textContent = `${scooterId} was scanned, but this scooter is not in the current fleet.`;
+    document.getElementById("manual-book-button")?.classList.remove("hidden");
+    return;
+  }
+
+  if (!scooter.available) {
+    feedback.textContent = `${scooterId} is currently unavailable.`;
+    return;
+  }
+
+  stopQrScanner();
+  feedback.textContent = `${scooterId} found. Opening the booking page.`;
+  setBookingSelection(scooterId);
+  setPage("book");
+}
+
+async function startQrScanner() {
+  const video = document.getElementById("qr-video");
+  const canvas = document.getElementById("qr-canvas");
+  const feedback = document.getElementById("qr-feedback");
+  const manualButton = document.getElementById("manual-book-button");
+  if (!video || !canvas || !feedback) {
+    return;
+  }
+
+  manualButton?.classList.add("hidden");
+
+  if (!window.jsQR) {
+    feedback.textContent = "QR reader is not available. Please enter the scooter ID manually.";
+    manualButton?.classList.remove("hidden");
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    feedback.textContent = "Camera scanning is not available in this browser. Please upload a QR image or enter the scooter ID manually.";
+    manualButton?.classList.remove("hidden");
+    return;
+  }
+
+  stopQrScanner();
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    video.srcObject = stream;
+    uiState.qrStream = stream;
+    uiState.isScanning = true;
+    feedback.textContent = "Scanning. Place the scooter QR code inside the camera view.";
+
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const scanFrame = () => {
+      if (!uiState.isScanning) {
+        return;
+      }
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const code = window.jsQR(imageData.data, canvas.width, canvas.height);
+        if (code) {
+          handleScannedScooterCode(code.data);
+          return;
+        }
+      }
+
+      window.requestAnimationFrame(scanFrame);
+    };
+
+    window.requestAnimationFrame(scanFrame);
+  } catch (error) {
+    uiState.isScanning = false;
+    feedback.textContent = "Camera access was denied or is not available. Please upload a QR image or enter the scooter ID manually.";
+    manualButton?.classList.remove("hidden");
+  }
+}
+
+function stopQrScanner() {
+  if (uiState.qrStream) {
+    uiState.qrStream.getTracks().forEach((track) => track.stop());
+    uiState.qrStream = null;
+  }
+
+  uiState.isScanning = false;
+  const video = document.getElementById("qr-video");
+  if (video) {
+    video.srcObject = null;
+  }
+}
 
 async function bootstrap() {
   setRole("customer");
