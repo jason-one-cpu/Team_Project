@@ -95,6 +95,7 @@ The current system includes:
 - customer registration and login
 - secure password handling with hashed storage
 - map-based store and scooter browsing
+- QR-based scan-to-book customer flow
 - simulated card payment and saved card reuse
 - booking confirmation records and email logs
 - booking history with route tracking
@@ -107,6 +108,7 @@ The current system includes:
 - Python 3.11 or newer is recommended
 - no third-party packages are required
 - SQLite is used through Python's standard library
+- the frontend loads Leaflet, QRCode.js, and jsQR from CDNs for maps and QR scanning
 
 ## Project Commands
 
